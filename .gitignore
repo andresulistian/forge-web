@@ -1,7 +1,9 @@
 node_modules/
+node_modules
 dist/
 .forge/
 .env
 *.log
 *.tsbuildinfo
 .DS_Store
+._*

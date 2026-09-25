@@ -616,6 +616,7 @@ export class ApiProviders {
           if (!raw) continue;
           const chunk = JSON.parse(raw);
           if (chunk.error) throw Error(chunk.error.message || JSON.stringify(chunk.error));
+          if (chunk.usage) emit("usage/reported", { usage: chunk.usage });
           const delta = chunk.choices?.[0]?.delta;
           if (!delta) continue;
           if (delta.content) {

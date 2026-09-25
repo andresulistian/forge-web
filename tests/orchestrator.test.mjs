@@ -41,6 +41,20 @@ test("specialists run in parallel and their reports reach one writable builder",
   assert.ok(events.some((event) => event.type === "orchestration-task" && event.payload.phase === "done"));
 });
 
+test("dynamic route uses one builder for small work and forwards bounded context", async () => {
+  const roles = [];
+  const orchestrator = new BuildOrchestrator({
+    workerFactory: ({ agent }) => ({
+      async run({ prompt }) { roles.push({ role: agent.role, prompt }); return { text: "Done" }; },
+      async close() {},
+    }),
+  });
+  await orchestrator.run({ project, request: "Fix button color", provider: "codex",
+    strategy: { specialists: [], workers: 1 }, context: "Project memory: green theme" });
+  assert.deepEqual(roles.map(({ role }) => role), ["builder"]);
+  assert.match(roles[0].prompt, /green theme/);
+});
+
 test("worker cap is enforced across concurrent project tasks", async () => {
   let running = 0;
   let peak = 0;

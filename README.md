@@ -221,6 +221,14 @@ Milestone ini menyediakan registry dan capability discovery. Pemanggilan tool MC
 
 ## Data lokal
 
+### Kanban dan routing agent
+
+Tab **Kanban** menyimpan task di `.forge/kanban/<project-id>.json` (lokasi `FORGE_DATA_DIR` bila diubah). Setiap Build otomatis membuat task, memecah daftar bernomor menjadi langkah, dan bergerak dari Backlog ke In Progress lalu Review/Test. Task yang dibuat manual dapat dikirim ke composer Build. Hasil Build tetap harus diperiksa dan diterapkan di tab Review.
+
+Mode **Economy / Balanced / Maximum** membatasi konteks relevan dan jumlah specialist. Task kecil tetap memakai satu builder; task besar dapat memanggil architecture dan risks secara paralel sebelum builder, bila Tim agent diaktifkan dan provider mendukungnya. Model lokal tetap mengikuti jalur Build satu agent. Ringkasan task dan proyek disimpan tanpa panggilan AI tambahan; konteks dibaca secara bertahap dari berkas relevan dengan batas panjang, tidak memuat `.env` atau data runtime.
+
+**Done** hanya tersedia setelah seluruh hasil Build diterapkan dan `git diff --check` serta script `npm test` / `npm run build` yang tersedia lulus. Proyek tanpa script tersebut tetap di Review/Test sampai pemeriksaan otomatis disediakan. Inspector setiap task menampilkan token yang dilaporkan provider bila ada, atau estimasi bertanda; biaya asli ditampilkan bila provider melaporkannya. Anda dapat memasukkan tarif USD per sejuta token masuk/keluar untuk estimasi biaya. Estimasi bukan tagihan provider.
+
 Default data disimpan di `forge-web/.forge/`:
 
 - `forge.sqlite` — project registry, chat, settings, deploy config.
@@ -253,6 +261,9 @@ Override lokasi dengan `FORGE_DATA_DIR` dan `FORGE_PROJECTS_DIR` di `.env`.
 src/                     React UI, Monaco, chat, workbench, settings
 server/index.mjs         Local HTTP companion + streaming event bus
 server/agents.mjs        Explicit provider/model router
+server/orchestrator.mjs  Routing specialist + satu builder
+server/kanban.mjs        State task, memori, konteks, token, gate regresi
+src/KanbanPanel.tsx      Board dan inspector biaya
 server/api-providers.mjs Claude/OpenRouter adapter
 server/github.mjs        Import/export/backup GitHub
 server/mcp.mjs           MCP stdio registry + discovery

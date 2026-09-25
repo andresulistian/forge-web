@@ -58,6 +58,11 @@ test("HTTP auth, origin, project creation, preview process, checkpoint and resto
     403,
   );
   const p = await api("projects/create", { name: "Demo" });
+  const boardTask = await api("kanban/create", { projectId: p.id, request: "1. Add UI\n2. Check layout", mode: "economy" });
+  assert.equal(boardTask.subtasks.length, 2);
+  assert.equal((await api("kanban?projectId=" + p.id)).tasks[0].column, "backlog");
+  await api("kanban/move", { projectId: p.id, taskId: boardTask.id, column: "todo" });
+  assert.equal((await api("kanban?projectId=" + p.id)).tasks[0].column, "todo");
   assert.equal(await api("browser/report?projectId=" + p.id), null);
   const noPreview = await fetch(url + "/api/browser/run", {
     method: "POST",

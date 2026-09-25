@@ -9,6 +9,7 @@ export default ts.config(
       "src-tauri/target/**",
       "templates/**",
       ".forge/**",
+      "**/._*",
     ],
   },
   js.configs.recommended,

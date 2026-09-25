@@ -19,6 +19,7 @@ import { Monitoring } from "./monitoring.mjs";
 import { BackendGuide } from "./backend-guide.mjs";
 import { BuildTaskManager } from "./build-tasks.mjs";
 import { BuildOrchestrator } from "./orchestrator.mjs";
+import { KanbanManager } from "./kanban.mjs";
 import { ChatSpace } from "./chat-space.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const data = process.env.FORGE_DATA_DIR || path.join(root, ".forge");
@@ -39,6 +40,7 @@ let terminal = null;
 let busy = false;
 let eventId = 0;
 const events = [];
+const kanban = new KanbanManager(data, emit);
 function emit(type, payload) {
   const event = { id: ++eventId, type, payload, time: Date.now() };
   events.push(event);
@@ -55,9 +57,23 @@ function emit(type, payload) {
     const binding = activeBuildTasks.get(payload.projectId);
     activeBuildTasks.delete(payload.projectId);
     const turn = payload.params?.turn || {};
+    if (turn.usage) void kanban.recordUsage(binding.project, binding.kanbanId, turn.usage).catch(() => {});
     const failure = turn.error || (turn.status === "failed" ? Error("Agent gagal menyelesaikan Build.") : null);
-    void buildTasks.finish(binding.project, binding.taskId, failure).catch((error) =>
+    void buildTasks.finish(binding.project, binding.taskId, failure).then((review) =>
+      kanban.finish(binding.project, binding.taskId, {
+        error: failure?.message, result: binding.result, files: review.files,
+      })).catch((error) =>
       emit("build-task-failed", { projectId: payload.projectId, taskId: binding.taskId, error: error.message }));
+  }
+  if (type === "codex" && payload.method === "item/completed" && payload.params?.item?.type === "agentMessage") {
+    const binding = activeBuildTasks.get(payload.projectId);
+    if (binding) binding.result = payload.params.item.text || "";
+  }
+  if (type === "build-usage" && payload.projectId && payload.taskId)
+    void kanban.recordUsage(ws.get(payload.projectId), activeOrchestration?.kanbanId || payload.taskId, payload.usage).catch(() => {});
+  if (type === "codex" && payload.projectId && payload.method === "usage/reported") {
+    const id = activeBuildTasks.get(payload.projectId)?.kanbanId || activeOrchestration?.kanbanId;
+    if (id) void kanban.recordUsage(ws.get(payload.projectId), id, payload.params?.usage).catch(() => {});
   }
   if (type === "codex" && payload.projectId) {
     const method = payload.method;
@@ -317,6 +333,7 @@ const server = http.createServer(async (req, res) => {
         });
       if (url.pathname === "/api/build/tasks")
         return json(res, await buildTasks.list(p));
+      if (url.pathname === "/api/kanban") return json(res, await kanban.list(p));
       if (url.pathname === "/api/build/review")
         return json(res, await buildTasks.review(p, b.taskId));
       if (url.pathname === "/api/build/diff")
@@ -345,6 +362,7 @@ const server = http.createServer(async (req, res) => {
         const clearingProjects = [...ws.projects];
         const result = await ws.clear(b.deleteFiles === true);
         await Promise.all(clearingProjects.map((project) => buildTasks.forget(project)));
+        await Promise.all(clearingProjects.map((project) => kanban.forget(project)));
         emit("workspace-cleared", { count: result.count, deletedFiles: result.deletedFiles });
         return json(res, result);
       } finally { busy = false; }
@@ -415,6 +433,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const result = await ws.remove(p, b.deleteFiles === true);
         await buildTasks.forget(p);
+        await kanban.forget(p);
         emit("project-deleted", { projectId: p.id, deletedFiles: result.deletedFiles });
         return json(res, result);
       } finally { busy = false; }
@@ -427,6 +446,17 @@ const server = http.createServer(async (req, res) => {
     busy = true;
     try {
       switch (url.pathname) {
+        case "/api/kanban/create": return json(res, await kanban.create(p, b.request, b.mode));
+        case "/api/kanban/move": return json(res, await kanban.move(p, b.taskId, b.column));
+        case "/api/kanban/pricing": return json(res, await kanban.price(p, b.taskId, b.inputPerMillion, b.outputPerMillion));
+        case "/api/kanban/verify": {
+          if (codex.active || activeOrchestration || deploy.active)
+            throw Error("Tunggu agent dan deploy selesai sebelum regression checks.");
+          const { task } = await kanban.get(p, b.taskId);
+          if ((await buildTasks.get(p, task.buildTaskId)).status !== "applied")
+            throw Error("Terapkan semua perubahan di tab Review sebelum Done.");
+          return json(res, await kanban.verify(p, b.taskId));
+        }
         case "/api/build/apply": {
           if (b.confirmed !== true) throw Error("Menerapkan hasil Build memerlukan konfirmasi.");
           if (codex.active || activeOrchestration || deploy.active)
@@ -437,7 +467,9 @@ const server = http.createServer(async (req, res) => {
           if (b.confirmed !== true) throw Error("Membuang hasil Build memerlukan konfirmasi.");
           if (codex.active || activeOrchestration || deploy.active)
             throw Error("Tunggu agent dan deploy selesai sebelum membuang hasil Build.");
-          return json(res, await buildTasks.discard(p, b.taskId));
+          const discarded = await buildTasks.discard(p, b.taskId);
+          await kanban.finish(p, b.taskId, { error: "Hasil Build dibuang." });
+          return json(res, discarded);
         }
         case "/api/browser/run": {
           if (codex.active) throw Error("Tunggu agent selesai sebelum menguji browser.");
@@ -620,22 +652,36 @@ const server = http.createServer(async (req, res) => {
           if (!["ask", "plan", "build"].includes(b.mode))
             throw Error("Mode tidak valid.");
           const media = await attachments.resolve(p, b.attachments || []);
+          const provider = b.provider || "codex";
+          const useTeam = b.mode === "build" && b.multiAgent === true &&
+            (provider === "codex" || String(provider).startsWith("api:"));
           const enrichedText =
             b.text + (media.length ? "\n\n" + attachmentPrompt(media) : "");
           let runProject = p;
           let buildBinding = null;
+          let kanbanRun = null;
           if (b.mode === "build") {
             const pending = (await buildTasks.list(p)).find((task) =>
               ["active", "review", "failed"].includes(task.status),
             );
             if (pending)
               throw Error("Masih ada hasil Build yang perlu diterapkan atau dibuang di tab Review.");
+            const boardTask = b.kanbanTaskId
+              ? (await kanban.get(p, b.kanbanTaskId)).task
+              : await kanban.create(p, b.text, b.orchestrationMode || "balanced");
+            if (boardTask.buildTaskId) throw Error("Task Kanban ini sudah memiliki Build.");
+            if (boardTask.request !== b.text.trim())
+              throw Error("Isi task Kanban berbeda dari pesan Build.");
             const started = await buildTasks.start(p, {
               provider: b.provider || "codex",
               model: b.model,
             });
             runProject = started.project;
             buildBinding = { taskId: started.task.id, project: p };
+            kanbanRun = await kanban.start(p, boardTask.id, started.task.id, {
+              provider, model: b.model, enabled: useTeam,
+            });
+            buildBinding.kanbanId = boardTask.id;
             emit("checkpoint", { projectId: p.id, taskId: started.task.id });
           }
           await ws.chat(p, {
@@ -651,7 +697,7 @@ const server = http.createServer(async (req, res) => {
           });
           try {
             progress(p.id, "analyzing-request", "Analyzing request", 8);
-            if (b.mode === "build" && b.multiAgent !== true) buildProjects.add(p.id);
+            if (b.mode === "build" && !useTeam) buildProjects.add(p.id);
             if (b.webMode === "web" || ((b.webMode || "auto") === "auto" && shouldBrowse(b.text)))
               emit("web-research", { projectId: p.id, status: "started", preference: b.webMode || "auto" });
             const research = await web.prepare(b.text, b.webMode || "auto", { projectId: p.id });
@@ -664,11 +710,8 @@ const server = http.createServer(async (req, res) => {
               });
               emit("web-research", { projectId: p.id, status: "completed", count: research.sources.length });
             }
-            if (b.mode === "build" && b.multiAgent === true) {
-              const provider = b.provider || "codex";
-              if (provider !== "codex" && !String(provider).startsWith("api:"))
-                throw Error("Multi-agent saat ini tersedia untuk Codex dan provider API kompatibel OpenAI.");
-              activeOrchestration = { projectId: p.id, taskId: buildBinding.taskId };
+            if (useTeam) {
+              activeOrchestration = { projectId: p.id, taskId: buildBinding.taskId, kanbanId: kanbanRun.task.id };
               const result = await orchestrator.run({
                 taskId: buildBinding.taskId,
                 project: runProject,
@@ -677,6 +720,8 @@ const server = http.createServer(async (req, res) => {
                 model: b.model,
                 media,
                 webContext: research?.context || research?.notice || "",
+                strategy: kanbanRun.task.routing,
+                context: kanbanRun.context,
               });
               if (result.builder?.text)
                 await ws.chat(p, {
@@ -685,14 +730,15 @@ const server = http.createServer(async (req, res) => {
                   provider,
                   model: b.model,
                 });
-              await buildTasks.finish(p, buildBinding.taskId);
+              const review = await buildTasks.finish(p, buildBinding.taskId);
+              await kanban.finish(p, buildBinding.taskId, { result: result.builder?.text, files: review.files });
               progress(p.id, "done", "Done", 100, "completed");
             } else {
               if (buildBinding) activeBuildTasks.set(p.id, buildBinding);
               await codex.turn(
                 runProject,
                 b.mode,
-                enrichedText,
+                enrichedText + (kanbanRun ? `\n\nRelevant project context (bounded):\n${kanbanRun.context}` : ""),
                 b.provider || "codex",
                 b.model,
                 media,
@@ -704,7 +750,8 @@ const server = http.createServer(async (req, res) => {
             buildProjects.delete(p.id);
             activeBuildTasks.delete(p.id);
             if (buildBinding)
-              await buildTasks.finish(p, buildBinding.taskId, e).catch(() => {});
+              await buildTasks.finish(p, buildBinding.taskId, e).then((review) =>
+                kanban.finish(p, buildBinding.taskId, { error: e.message, files: review.files })).catch(() => {});
             progress(p.id, "failed", "Failed", 100, "failed", e.message);
             await ws.chat(p, { role: "system", text: e.message });
             throw e;

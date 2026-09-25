@@ -173,6 +173,8 @@ export class BuildOrchestrator {
       if (type !== "codex") return;
       const method = payload.method;
       const item = payload.params?.item || {};
+      if (method === "usage/reported" && payload.params?.usage)
+        this.event(task, "build-usage", { usage: payload.params.usage });
       // Expose action lifecycle only. Agent prose/reasoning remains private to its role result.
       if (method === "item/started" || (method === "item/completed" && item.type !== "agentMessage"))
         this.event(task, "orchestration-action", {
@@ -244,7 +246,7 @@ export class BuildOrchestrator {
       .slice(0, 30000);
   }
 
-  async run({ taskId = randomUUID(), project, request, provider, model, media = [], webContext = "" }) {
+  async run({ taskId = randomUUID(), project, request, provider, model, media = [], webContext = "", strategy = null, context = "" }) {
     if (!project?.id || !project?.path) throw Error("Proyek Build tidak valid.");
     if (typeof request !== "string" || !request.trim()) throw Error("Permintaan Build kosong.");
     if ([...this.tasks.values()].some((task) => task.project.id === project.id))
@@ -260,10 +262,13 @@ export class BuildOrchestrator {
       stopped: false,
     };
     this.tasks.set(task.id, task);
-    this.event(task, "orchestration-task", { status: "active", phase: "specialists" });
+    const roles = strategy?.specialists || ["architecture", "risks"];
+    this.event(task, "orchestration-task", { status: "active", phase: roles.length ? "specialists" : "builder", workers: roles.length + 1 });
     try {
+      const prompts = this.specialistPrompts(request + (context ? `\n\nRelevant project context:\n${context}` : ""))
+        .filter(({ role }) => roles.includes(role));
       const settled = await Promise.allSettled(
-        this.specialistPrompts(request).map(({ role, prompt }) =>
+        prompts.map(({ role, prompt }) =>
           this.runAgent(task, role, "plan", prompt),
         ),
       );
@@ -271,7 +276,7 @@ export class BuildOrchestrator {
         result.status === "fulfilled"
           ? result.value
           : {
-              role: this.specialistPrompts(request)[index].role,
+              role: prompts[index].role,
               text: "",
               status: "failed",
               error: result.reason?.message || "Specialist failed.",
@@ -283,7 +288,7 @@ export class BuildOrchestrator {
       const builderPrompt =
         `You are the sole writable builder for this task. Implement the user's request and run relevant tests. ` +
         `The specialist reports below are advisory and may be incomplete; verify them against the project.\n\n` +
-        `User request:\n${request}\n\nSpecialist reports:\n${synthesis || "No specialist report was available."}`;
+        `User request:\n${request}\n\nRelevant project context:\n${context || "none"}\n\nSpecialist reports:\n${synthesis || "No specialist report was needed."}`;
       const builder = await this.writer.use(() =>
         this.runAgent(task, "builder", "build", builderPrompt),
       );

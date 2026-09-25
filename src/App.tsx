@@ -7,6 +7,7 @@ import BrowserTests from "./BrowserTests";
 import MonacoCodeEditor from "./MonacoCodeEditor";
 import IntegrationsPanel from "./IntegrationsPanel";
 import ReviewPanel from "./ReviewPanel";
+import KanbanPanel from "./KanbanPanel";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUp,
@@ -16,6 +17,7 @@ import {
   Check,
   ChevronRight,
   Code2,
+  Columns3,
   FileCode2,
   Flame,
   Folder,
@@ -104,7 +106,9 @@ export default function App() {
     [frameKey, setFrameKey] = useState(0);
   const [integrationRevision, setIntegrationRevision] = useState(0);
   const [reviewRevision, setReviewRevision] = useState(0);
-  const [multiAgent, setMultiAgent] = useState(() => localStorage.getItem("forge-multi-agent") === "true");
+  const [kanbanRevision, setKanbanRevision] = useState(0);
+  const [kanbanTaskId, setKanbanTaskId] = useState<string | null>(null);
+  const [multiAgent, setMultiAgent] = useState(() => localStorage.getItem("forge-multi-agent") !== "false");
   const [approvalSound, setApprovalSound] = useState(() => localStorage.getItem("forge-approval-sound") !== "false");
   const [theme, setTheme] = useState<"dark" | "light">(() =>
     document.documentElement.dataset.theme === "light" ? "light" : "dark",
@@ -306,6 +310,8 @@ export default function App() {
             }
             if (["build-task-applied", "build-task-discarded", "build-task-failed"].includes(e.type))
               setReviewRevision((value) => value + 1);
+            if (e.type === "kanban-updated" && current.current?.id === p.projectId)
+              setKanbanRevision((value) => value + 1);
             if (e.type === "orchestration-task") {
               if (p.status === "active") setActive(p.projectId);
               if (["completed", "failed", "stopped"].includes(p.status)) setActive(null);
@@ -427,11 +433,15 @@ export default function App() {
           text: value,
           mode,
           webMode,
-          multiAgent: mode === "build" && multiAgent,
+          multiAgent: mode === "build" && multiAgent &&
+            (ai.provider === "codex" || ai.provider.startsWith("api:")),
+          orchestrationMode: localStorage.getItem("forge-orchestration-mode") || "balanced",
+          ...(mode === "build" && kanbanTaskId ? { kanbanTaskId } : {}),
           ...ai,
           attachments: attachments.map((a) => a.id),
         });
         setAttachments([]);
+        setKanbanTaskId(null);
         setRuntime(`${providerName(ai.provider)} tersambung · ${ai.model}`);
       } catch (e) {
         setActive(null);
@@ -908,7 +918,7 @@ export default function App() {
                 <textarea
                   aria-label="Pesan untuk Forge"
                   value={text}
-                  onChange={(e) => setText(e.target.value)}
+                  onChange={(e) => { setText(e.target.value); setKanbanTaskId(null); }}
                   placeholder={
                     selected
                       ? "Apa yang ingin Anda buat hari ini?"
@@ -960,7 +970,7 @@ export default function App() {
                       type="button"
                       className={`agent-team-toggle ${multiAgent ? "chosen" : ""}`}
                       disabled={ai.provider !== "codex" && !ai.provider.startsWith("api:")}
-                      title="Dua agent read-only memeriksa arsitektur dan risiko secara paralel, lalu satu builder mengerjakan perubahan."
+                      title="Routing dinamis: task kecil memakai satu agent, task kompleks menambah specialist sesuai mode biaya di Kanban."
                       onClick={() => {
                         const next = !multiAgent;
                         setMultiAgent(next);
@@ -1012,6 +1022,7 @@ export default function App() {
                 { id: "preview", icon: Monitor, label: "Preview" },
                 { id: "files", icon: Code2, label: "Code" },
                 { id: "review", icon: GitPullRequest, label: "Review" },
+                { id: "kanban", icon: Columns3, label: "Kanban" },
                 { id: "deploy", icon: Rocket, label: "Deploy" },
                 { id: "history", icon: History, label: "Checkpoints" },
                 { id: "settings", icon: Settings2, label: "Settings" },
@@ -1232,6 +1243,11 @@ export default function App() {
                     )}
                   </div>
                 </div>
+              ) : tab === "kanban" ? (
+                <KanbanPanel project={selected} revision={kanbanRevision} busy={busy || !!active || deploying}
+                  onError={setError} onUse={(task) => {
+                    setMode("build"); setText(task.request); setKanbanTaskId(task.id);
+                  }} />
               ) : tab === "review" ? (
                 <ReviewPanel
                   project={selected}
