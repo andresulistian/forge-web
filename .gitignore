@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.forge/
+.env
+*.log
+*.tsbuildinfo
+.DS_Store
+release-v070-dedicated-chat-multi-agent/
+.env.local
+.env.*.local
