@@ -1,5 +1,7 @@
 # Forge Web
 
+Versi **0.9.0** menambahkan tab **Kanban**: task Build per proyek dengan kolom Backlog → To Do → In Progress → Review/Test → Done, mode biaya Economy/Balanced/Maximum, pencatatan token/biaya, dan gate regression checks sebelum Done. Lihat bagian [Kanban](#kanban).
+
 Versi **0.8.0** menambahkan Phase 1 workspace agent: Universal Agent Core untuk Codex, OpenRouter, Vikey, Gemini, Ollama, dan Bonsai; reusable skills; Project Memory yang terpisah per proyek; Agent Activity Center; serta checkpoint review dengan diff, Accept, dan Undo. Activity Center hanya menampilkan aksi nyata berlevel tinggi—bukan private chain-of-thought—beserta durasi, status test/build, Retry/Stop, dan usage/cost ketika provider menyediakannya.
 
 Semua kemampuan 0.7.6 tetap dipertahankan: chat bergaya ChatGPT, pilihan dark/light mode, Vikey AI, **Dedicated Chat**, **Multi-Agent Codex-style**, notifikasi approval, preview tab baru, annotation visual, layout responsif, penghapusan folder ke Trash, Security Gate, attachment multimodal, workspace/project management, dan local AI.
@@ -244,6 +246,18 @@ Milestone ini menyediakan registry dan capability discovery. Pemanggilan tool MC
 - Checkpoint internal mengabaikan `.git`, `.forge`, `node_modules`, build output, `.env*`, key, dan aturan `.gitignore`; ini bukan secret scanner.
 - Belum ada auth Forge, multi-user, billing, akses cloud ke companion, atau plugin marketplace.
 
+## Kanban
+
+Tab **Kanban** menyimpan task per proyek di `.forge/kanban/<project-id>.json` (atau `FORGE_DATA_DIR/kanban/`). File ditulis atomik (file sementara + rename, mode `0600`) dan dihapus saat proyek atau Workspace dihapus.
+
+- Setiap pesan **Build** otomatis membuat task (atau memakai task yang dikirim lewat **Gunakan di Build**). Daftar bernomor dipecah menjadi langkah task.
+- Saat Build mulai, task pindah ke **In Progress** dan terikat ke run Agent Activity Center. Konteks relevan berbatas (sesuai mode biaya, tanpa `.env`/file privat) ditambahkan ke prompt, di samping Project Memory yang sudah ada.
+- Saat turn selesai, task pindah ke **Review/Test** dengan ringkasan dan daftar file dari diff checkpoint. Build gagal tanpa perubahan kembali ke **To Do**.
+- **Accept** di tab Agent menandai task siap diverifikasi; **Undo** mengembalikan task ke **To Do**.
+- **Jalankan checks → Done** (perlu konfirmasi) menjalankan script `lint`, `test`, dan `build` yang ada di `package.json` proyek via `npm run` tanpa shell perantara, masing-masing dibatasi 3 menit. Task hanya pindah ke **Done** bila semua lulus; proyek tanpa script tersebut tetap di Review/Test.
+- Token yang dilaporkan provider (event `usage`) dijumlahkan per task; tanpa laporan provider, angka ditandai estimasi. Biaya asli tampil bila provider melaporkannya (mis. OpenRouter), dan Anda dapat memasukkan tarif USD per sejuta token untuk estimasi. Estimasi bukan tagihan provider.
+- Mode biaya saat ini memengaruhi besar konteks dan label routing; tim multi-agent tetap diatur oleh toggle Multi-Agent.
+
 ## Data lokal
 
 Default data disimpan di `forge-web/.forge/`:
@@ -252,6 +266,7 @@ Default data disimpan di `forge-web/.forge/`:
 - `projects/` — proyek yang dibuat Forge.
 - `checkpoints/` — repository checkpoint terpisah dari Git proyek.
 - `attachments/` — lampiran per proyek.
+- `kanban/` — board Kanban per proyek.
 
 Pada instalasi Nobara melalui script, data berada di `~/.local/share/forge-web/data/` dan proyek baru di `~/Documents/ForgeProjects/`.
 
@@ -282,6 +297,8 @@ server/api-providers.mjs Claude/OpenRouter adapter
 server/github.mjs        Import/export/backup GitHub
 server/mcp.mjs           MCP stdio registry + discovery
 server/workspace.mjs     Project/file boundary + checkpoints
+server/kanban.mjs        State Kanban, konteks, token, gate regression checks
+src/KanbanPanel.tsx      Board Kanban dan inspector biaya
 server/store.mjs         SQLite persistence
 server/codex.mjs         Codex app-server adapter
 server/gemini.mjs        Gemini ACP adapter

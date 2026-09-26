@@ -20,6 +20,7 @@ import { BackendGuide } from "./backend-guide.mjs";
 import { Skills } from "./skills.mjs";
 import { ProjectMemory } from "./project-memory.mjs";
 import { ActivityCenter } from "./activity.mjs";
+import { KanbanManager, MODES as MODES_KANBAN } from "./kanban.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const data = process.env.FORGE_DATA_DIR || path.join(root, ".forge");
 const ws = new Workspace(
@@ -38,19 +39,51 @@ let busy = false;
 let eventId = 0;
 const events = [];
 let activity = null;
+// projectId -> { kanbanId, runId, result } for the Build turn bound to a Kanban task.
+const kanbanRuns = new Map();
+const kanban = new KanbanManager(data, emit);
 function emit(type, payload) {
   const event = { id: ++eventId, type, payload, time: Date.now() };
   events.push(event);
   if (events.length > 500) events.shift();
   for (const res of clients) res.write(JSON.stringify(event) + "\n");
+  let observed = Promise.resolve();
+  let project = null;
   if (activity && payload?.projectId) {
-    let project = null;
     try {
       project = ws.get(payload.projectId);
     } catch {
       /* Project may have been removed while a late event was in flight. */
     }
-    void activity.observe(type, payload, project).catch(() => {});
+    observed = activity.observe(type, payload, project).catch(() => {});
+  }
+  const kanbanRun = type === "codex" ? kanbanRuns.get(payload?.projectId) : null;
+  if (kanbanRun && project) {
+    if (payload.method === "usage" && payload.params)
+      void kanban.recordUsage(project, kanbanRun.kanbanId, payload.params).catch(() => {});
+    if (payload.method === "item/completed" && payload.params?.item?.type === "agentMessage")
+      kanbanRun.result = String(payload.params.item.text || "").slice(0, 4000);
+    if (payload.method === "turn/completed") {
+      kanbanRuns.delete(payload.projectId);
+      const turn = payload.params?.turn || {};
+      const failure =
+        turn.error?.message ||
+        (turn.status === "failed"
+          ? "Agent gagal menyelesaikan Build."
+          : turn.status === "interrupted"
+            ? "Build dihentikan."
+            : null);
+      // Wait for Activity Center to compute the checkpoint diff, then move the task to Review/Test.
+      void observed
+        .then(() =>
+          kanban.finish(project, kanbanRun.runId, {
+            error: failure,
+            result: kanbanRun.result,
+            files: activity.current(project.id)?.diff?.files || [],
+          }),
+        )
+        .catch(() => {});
+    }
   }
   if (
     type === "deploy-completed" &&
@@ -299,6 +332,7 @@ const server = http.createServer(async (req, res) => {
           skills: skills.list(p.id).map(({ prompt: _prompt, ...skill }) => skill),
         });
       }
+      if (url.pathname === "/api/kanban") return json(res, await kanban.list(p));
       if (url.pathname === "/api/guide/messages")
         return json(res, await codex.ollama.guideMessages(p));
       if (url.pathname === "/api/backups")
@@ -349,7 +383,10 @@ const server = http.createServer(async (req, res) => {
       if (preview) stopPreview();
       busy = true;
       try {
+        const clearingProjects = [...ws.projects];
         const result = await ws.clear(b.deleteFiles === true);
+        await Promise.all(clearingProjects.map((project) => kanban.forget(project).catch(() => {})));
+        kanbanRuns.clear();
         emit("workspace-cleared", {
           count: result.count,
           deletedFiles: result.deletedFiles,
@@ -457,6 +494,8 @@ const server = http.createServer(async (req, res) => {
       busy = true;
       try {
         const result = await ws.remove(p, b.deleteFiles === true);
+        await kanban.forget(p).catch(() => {});
+        kanbanRuns.delete(p.id);
         emit("project-deleted", {
           projectId: p.id,
           deletedFiles: result.deletedFiles,
@@ -474,6 +513,24 @@ const server = http.createServer(async (req, res) => {
     busy = true;
     try {
       switch (url.pathname) {
+        case "/api/kanban/create":
+          return json(res, await kanban.create(p, b.request, b.mode));
+        case "/api/kanban/move":
+          return json(res, await kanban.move(p, String(b.taskId || ""), b.column));
+        case "/api/kanban/delete":
+          return json(res, await kanban.remove(p, String(b.taskId || "")));
+        case "/api/kanban/pricing":
+          return json(
+            res,
+            await kanban.price(p, String(b.taskId || ""), b.inputPerMillion, b.outputPerMillion),
+          );
+        case "/api/kanban/verify": {
+          if (b.confirmed !== true)
+            throw Error("Menjalankan regression checks proyek perlu persetujuan.");
+          if (codex.active || deploy.active || terminal)
+            throw Error("Tunggu agent, terminal, dan deploy selesai sebelum regression checks.");
+          return json(res, await kanban.verify(p, String(b.taskId || "")));
+        }
         case "/api/browser/run": {
           if (codex.active)
             throw Error("Tunggu agent selesai sebelum menguji browser.");
@@ -678,6 +735,7 @@ const server = http.createServer(async (req, res) => {
             `Diterima: ${String(run.request || "Perubahan agent").slice(0, 100)}`,
           );
           activity.update(p.id, { reviewStatus: "accepted", acceptedAt: Date.now() });
+          await kanban.review(p, run.id, "accepted").catch(() => {});
           activity.record(p.id, "accepted", "Perubahan diterima", run.diff?.stat || "", {
             runId: run.id,
           });
@@ -693,6 +751,7 @@ const server = http.createServer(async (req, res) => {
           stopPreview();
           const nextHistory = await ws.restore(p, run.checkpointId);
           activity.update(p.id, { reviewStatus: "undone", undoneAt: Date.now() });
+          await kanban.review(p, run.id, "undone").catch(() => {});
           activity.record(p.id, "undone", "Perubahan dikembalikan", run.checkpointId, {
             runId: run.id,
           });
@@ -726,6 +785,21 @@ const server = http.createServer(async (req, res) => {
           if (!["ask", "plan", "build"].includes(b.mode))
             throw Error("Mode tidak valid.");
           const media = await attachments.resolve(p, b.attachments || []);
+          let boardTask = null;
+          if (b.mode === "build") {
+            if (b.kanbanTaskId != null) {
+              boardTask = (await kanban.get(p, String(b.kanbanTaskId))).task;
+              if (boardTask.buildTaskId || boardTask.column === "done")
+                throw Error("Task Kanban ini sudah memiliki Build.");
+              if (boardTask.request !== b.text.trim())
+                throw Error("Isi task Kanban berbeda dari pesan Build.");
+            } else
+              boardTask = await kanban.create(
+                p,
+                b.text,
+                MODES_KANBAN.includes(b.orchestrationMode) ? b.orchestrationMode : "balanced",
+              );
+          }
           const resolvedSkill = skills.resolve(p.id, b.text);
           const memory = await projectMemory.refresh(p);
           let checkpointId = null;
@@ -735,7 +809,7 @@ const server = http.createServer(async (req, res) => {
             emit("checkpoint", { projectId: p.id });
             await attachments.stage(p, media);
           }
-          const enrichedText =
+          let enrichedText =
             resolvedSkill.text +
             (media.length ? "\n\n" + attachmentPrompt(media) : "") +
             resolvedSkill.instructions +
@@ -759,7 +833,7 @@ const server = http.createServer(async (req, res) => {
             ),
           });
           try {
-            activity.begin(
+            const agentRun = activity.begin(
               p,
               {
                 text: b.text,
@@ -772,6 +846,15 @@ const server = http.createServer(async (req, res) => {
               },
               checkpointId,
             );
+            if (boardTask) {
+              const started = await kanban.start(p, boardTask.id, agentRun.id, {
+                provider: b.provider || "codex",
+                model: b.model,
+                enabled: b.multiAgent === true,
+              });
+              kanbanRuns.set(p.id, { kanbanId: boardTask.id, runId: agentRun.id, result: "" });
+              enrichedText += `\n\nKanban task context (bounded, advisory):\n${started.context}`;
+            }
             if (resolvedSkill.skill)
               activity.record(
                 p.id,
@@ -837,6 +920,16 @@ const server = http.createServer(async (req, res) => {
               });
             await ws.chat(p, { role: "system", text: e.message });
             await activity.finish(p, e.message).catch(() => {});
+            const kanbanRun = kanbanRuns.get(p.id);
+            if (kanbanRun) {
+              kanbanRuns.delete(p.id);
+              await kanban
+                .finish(p, kanbanRun.runId, {
+                  error: e.message,
+                  files: activity.current(p.id)?.diff?.files || [],
+                })
+                .catch(() => {});
+            }
             throw e;
           }
           return json(res, { ok: true });

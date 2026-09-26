@@ -70,7 +70,7 @@ export class Codex {
       }
     });
     const result = await this.request("initialize", {
-      clientInfo: { name: "forge", title: "Forge", version: "0.8.0" },
+      clientInfo: { name: "forge", title: "Forge", version: "0.9.0" },
       capabilities: { experimentalApi: false },
     });
     this.send({ method: "initialized", params: {} });

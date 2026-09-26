@@ -129,6 +129,16 @@ test("cumulative Mac features cannot silently disappear from a release", async (
   assert.match(agents, /provider\.startsWith\("api:"\)/);
   assert.match(attachments, /extractPdfText/);
   assert.match(attachments, /inspectZip/);
+  // v0.9.0 Kanban board and its server wiring.
+  assert.match(app, /<KanbanPanel/);
+  assert.match(app, /icon: Columns3, label: "Kanban"/);
+  assert.match(app, /kanban-updated/);
+  assert.match(app, /kanbanTaskId/);
+  assert.match(server, /url\.pathname === "\/api\/kanban"/);
+  assert.match(server, /case "\/api\/kanban\/verify"/);
+  assert.match(server, /kanban\.review\(p, run\.id, "accepted"\)/);
+  assert.match(server, /kanban\.review\(p, run\.id, "undone"\)/);
+  assert.match(styles, /\.kanban-columns/);
 });
 
 test("approval sound, new-tab preview, and editable annotations stay available", async () => {

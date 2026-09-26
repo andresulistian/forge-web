@@ -79,7 +79,7 @@ export class Gemini {
     });
     const info = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: { name: "forge", version: "0.8.0" },
+      clientInfo: { name: "forge", version: "0.9.0" },
       clientCapabilities: {
         fs: { readTextFile: false, writeTextFile: false },
         terminal: false,

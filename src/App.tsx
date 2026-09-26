@@ -9,6 +9,7 @@ import PreviewAnnotations, {
   type PreviewAnnotation,
 } from "./PreviewAnnotations";
 import AgentCenter from "./AgentCenter";
+import KanbanPanel from "./KanbanPanel";
 import { playApprovalSound, unlockNotificationAudio } from "./notifications";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -20,6 +21,7 @@ import {
   Check,
   ChevronRight,
   Code2,
+  Columns3,
   Crosshair,
   ExternalLink,
   FileCode2,
@@ -135,6 +137,8 @@ export default function App() {
   const [integrationRevision, setIntegrationRevision] = useState(0);
   const [usageRevision, setUsageRevision] = useState(0);
   const [agentRevision, setAgentRevision] = useState(0);
+  const [kanbanRevision, setKanbanRevision] = useState(0);
+  const [kanbanTaskId, setKanbanTaskId] = useState<string | null>(null);
   const [terminalCommand, setTerminalCommand] = useState("");
   const [deployment, setDeployment] = useState<any>(null);
   const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
@@ -285,6 +289,8 @@ export default function App() {
               (e.type === "codex" && p.method === "turn/completed")
             )
               setAgentRevision((value) => value + 1);
+            if (e.type === "kanban-updated" && current.current?.id === p.projectId)
+              setKanbanRevision((value) => value + 1);
             if (e.type === "preview") setPreview(p.url ? p : null);
             if (e.type === "deploy-started") {
               setDeployment(p);
@@ -436,10 +442,14 @@ export default function App() {
           webMode,
           multiAgent:
             agentMode === "multi" && mode === "build" && multiAgentSupported,
+          orchestrationMode:
+            localStorage.getItem("forge-orchestration-mode") || "balanced",
+          ...(mode === "build" && kanbanTaskId ? { kanbanTaskId } : {}),
           ...ai,
           attachments: attachments.map((a) => a.id),
         });
         setAttachments([]);
+        setKanbanTaskId(null);
         setRuntime(`${providerName(ai.provider)} tersambung · ${ai.model}`);
       } catch (e) {
         setActive(null);
@@ -749,7 +759,7 @@ export default function App() {
           <div className="profile">
             <div className="avatar">A</div>
             <div>
-              Personal workspace<small>Forge · v0.8.0</small>
+              Personal workspace<small>Forge · v0.9.0</small>
             </div>
             <span className="dot" />
           </div>
@@ -1123,7 +1133,10 @@ export default function App() {
                   aria-label="Pesan untuk Forge"
                   rows={1}
                   value={text}
-                  onChange={(e) => setText(e.target.value)}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    setKanbanTaskId(null);
+                  }}
                   onInput={(event) => {
                     event.currentTarget.style.height = "auto";
                     event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`;
@@ -1234,6 +1247,7 @@ export default function App() {
               {[
                 { id: "preview", icon: Monitor, label: "Preview" },
                 { id: "files", icon: Code2, label: "Code" },
+                { id: "kanban", icon: Columns3, label: "Kanban" },
                 { id: "deploy", icon: Rocket, label: "Deploy" },
                 { id: "agent", icon: Bot, label: "Agent" },
                 { id: "history", icon: History, label: "Checkpoints" },
@@ -1552,6 +1566,18 @@ export default function App() {
                         : [...items, project],
                     );
                     void select(project);
+                  }}
+                />
+              ) : tab === "kanban" ? (
+                <KanbanPanel
+                  project={selected}
+                  revision={kanbanRevision}
+                  busy={busy || !!active}
+                  onError={setError}
+                  onUse={(task) => {
+                    setMode("build");
+                    setText(task.request);
+                    setKanbanTaskId(task.id);
                   }}
                 />
               ) : tab === "agent" ? (

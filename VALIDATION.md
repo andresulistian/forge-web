@@ -1,9 +1,17 @@
 # Forge Web MVP validation
 
+## v0.9.0 Kanban (2026-09-26)
+
+- `npm run check`: ESLint pass; `npm test` 90/90 pass (85 baseline + 5 Kanban tests); `tsc -b` + Vite production build pass.
+- `tests/kanban.test.mjs`: routing/decomposition, persistence + atomic `0600` state file, bounded context that excludes `.env`, usage/cost accounting, Accept/Undo mirroring, Done gate (Accept + lint/test/build scripts), check timeout, project ID/mode/size validation.
+- `tests/http.test.mjs`: `/api/kanban`, `/api/kanban/create`, `/api/kanban/move`, and confirmation requirement on `/api/kanban/verify`.
+- `tests/ui-regression.test.mjs`: cumulative marker for the Kanban tab, event refresh, server routes, and Accept/Undo wiring.
+- Not exercised here: live provider billing, a live Build turn end-to-end, and the macOS UI in a browser.
+
 ## Automated checks
 
 - ESLint: pass.
-- Node test suite: 68/68 pass.
+- Node test suite: 90/90 pass (v0.9.0).
 - TypeScript + Vite production build: pass.
 - Monaco editor and JSON/CSS/HTML/TypeScript workers: emitted as local build assets.
 
