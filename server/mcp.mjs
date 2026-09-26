@@ -81,6 +81,16 @@ export class McpManager {
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
     });
+    child.on("error", (error) => {
+      this.emit("mcp", {
+        serverId: id,
+        server: config.name,
+        action: "connect",
+        status: "error",
+        message: error.message || String(error),
+      });
+    });
+    child.stdin.on("error", () => {});
     let buffer = "";
     let stderr = "";
     let sequence = 0;

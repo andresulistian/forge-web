@@ -218,7 +218,7 @@ export function extractPdfText(bytes) {
     );
     if (/\/FlateDecode/.test(dictionary)) {
       try {
-        stream = inflateSync(stream);
+        stream = inflateSync(stream, { maxOutputLength: 1_000_001 });
       } catch {
         cursor = end + 9;
         continue;
@@ -288,8 +288,19 @@ export function inspectZip(bytes) {
         localExtra = bytes.readUInt16LE(localOffset + 28);
       const start = localOffset + 30 + localName + localExtra;
       const packed = bytes.subarray(start, start + compressed);
+      const maxLen = Math.min(uncompressed, 1_000_000) + 1;
       const content =
-        method === 0 ? packed : method === 8 ? inflateRawSync(packed) : null;
+        method === 0
+          ? packed.subarray(0, Math.min(maxLen, packed.length))
+          : method === 8
+            ? (() => {
+                try {
+                  return inflateRawSync(packed, { maxOutputLength: maxLen });
+                } catch {
+                  return null;
+                }
+              })()
+            : null;
       if (content) text = readableText(content).slice(0, 12000);
     }
     entries.push({ name, size: uncompressed, text });

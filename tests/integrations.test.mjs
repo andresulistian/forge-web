@@ -686,6 +686,7 @@ test("MCP configuration is scoped and invokes stdio without a shell", async () =
         );
       },
     };
+    child.stdin.on = () => child.stdin;
     child.kill = () => true;
     return child;
   };

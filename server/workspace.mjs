@@ -6,14 +6,18 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { Store } from "./store.mjs";
 const exec = promisify(execFile);
-export const privateName = (n) =>
-  n === ".git" ||
-  n === ".forge" ||
-  n === "node_modules" ||
-  n === "target" ||
-  n === "dist" ||
-  (n.startsWith(".env") && n !== ".env.example") ||
-  /\.(pem|key)$/.test(n);
+export const privateName = (n) => {
+  const lower = typeof n === "string" ? n.toLowerCase() : String(n).toLowerCase();
+  return (
+    lower === ".git" ||
+    lower === ".forge" ||
+    lower === "node_modules" ||
+    lower === "target" ||
+    lower === "dist" ||
+    (lower.startsWith(".env") && lower !== ".env.example") ||
+    /\.(pem|key)$/.test(lower)
+  );
+};
 export async function safeFile(root, relative) {
   if (
     typeof relative !== "string" ||
@@ -225,6 +229,10 @@ export class Workspace {
         p.path,
         "-c",
         "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.pager=cat",
         "-c",
         "user.name=Forge",
         "-c",
