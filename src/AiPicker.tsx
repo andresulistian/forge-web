@@ -119,7 +119,7 @@ export default function AiPicker({
         if (alive) {
           setCatalog(c);
           if (
-            ["ollama", "bonsai"].includes(value.provider) &&
+            value.provider === "ollama" &&
             c.models?.length &&
             !c.models.some((item) => item.id === value.model) &&
             c.defaultModel
@@ -135,7 +135,7 @@ export default function AiPicker({
             c.name ||
             (value.provider === "gemini"
               ? "Gemini"
-              : ["ollama", "bonsai"].includes(value.provider)
+              : value.provider === "ollama"
                 ? "Local AI"
                 : "Codex");
           onStatus(
@@ -168,7 +168,7 @@ export default function AiPicker({
           { id: "flash", name: "Gemini Flash" },
           { id: "pro", name: "Gemini Pro" },
         ]
-      : ["ollama", "bonsai"].includes(value.provider)
+      : value.provider === "ollama"
         ? [{ id: "", name: "Memuat model lokal..." }]
         : [
             { id: "gpt-6-astra", name: "Astra" },
@@ -237,16 +237,13 @@ export default function AiPicker({
                     ? { provider: "gemini", model: "flash" }
                     : e.target.value === "ollama"
                       ? { provider: "ollama", model: "" }
-                      : e.target.value === "bonsai"
-                        ? { provider: "bonsai", model: "" }
-                        : { provider: "codex", model: "gpt-6-astra" },
+                      : { provider: "codex", model: "gpt-6-astra" },
               );
             }}
           >
             <option value="codex">OpenAI · Codex</option>
             <option value="gemini">Google · Gemini</option>
             <option value="ollama">Local · Ollama</option>
-            <option value="bonsai">Local · Bonsai 27B</option>
             {providers.map((item) => (
               <option key={item.id} value={`api:${item.id}`}>
                 API · {item.label}
@@ -330,15 +327,15 @@ export default function AiPicker({
           </span>
         </div>
       )}
-      {["ollama", "bonsai"].includes(value.provider) && (
+      {["ollama"].includes(value.provider) && (
         <div className="ai-connection local-ai-state">
           <Cpu size={13} />
           <span>
             {loading
-              ? `Menghubungkan ${value.provider === "bonsai" ? "Bonsai" : "Ollama"} lokal…`
+              ? `Menghubungkan ${value.provider === "ollama" ? "Ollama" : "Ollama"} lokal…`
               : catalog?.connected
-                ? `${catalog.loaded?.includes(value.model) ? "Model termuat di RAM" : "Siap · model dimuat saat dipakai"} · memori lokal ${catalog.memoryCount || 0} pesan`
-                : `${value.provider === "bonsai" ? "Bonsai" : "Ollama"} belum tersambung`}
+                ? `Model termuat di RAM · memori lokal ${catalog.memoryCount || 0} pesan`
+                : `Ollama belum tersambung`}
           </span>
           <button
             title="Hapus memori percakapan lokal proyek ini"

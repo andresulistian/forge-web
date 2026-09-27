@@ -53,20 +53,23 @@ export default function GuideChat({
   const [error, setError] = useState("");
   const [copied, setCopied] = useState<number | null>(null);
   const [providers, setProviders] = useState<GuideProvider[]>([]);
-  const [guideProvider, setGuideProvider] = useState(
-    () => localStorage.getItem("forge-guide-provider") || "ollama",
-  );
+  const [guideProvider, setGuideProvider] = useState(() => {
+    const saved = localStorage.getItem("forge-guide-provider");
+    return saved && !saved.startsWith("bonsai") ? saved : "ollama";
+  });
   const [guideModel, setGuideModel] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
   const scope = project?.id || "general";
   const selectedProvider = providers.find(
     (item) => `api:${item.id}` === guideProvider,
   );
-  const selectedModels = selectedProvider?.models?.length
-    ? selectedProvider.models
-    : selectedProvider
-      ? [selectedProvider.defaultModel]
-      : [];
+  const selectedModels = guideProvider === "ollama"
+    ? ["", "llama3.1", "llama3.2", "gemma2", "mistral", "qwen2.5"]
+    : selectedProvider?.models?.length
+      ? selectedProvider.models
+      : selectedProvider
+        ? [selectedProvider.defaultModel]
+        : [];
 
   useEffect(() => {
     if (!open || !ready) return;
@@ -219,7 +222,7 @@ export default function GuideChat({
         mode,
         webMode,
         guideProvider,
-        guideModel: ["ollama", "bonsai"].includes(guideProvider)
+        guideModel: guideProvider === "ollama"
           ? ""
           : guideModel || selectedProvider?.defaultModel,
       });
@@ -272,9 +275,7 @@ export default function GuideChat({
                 Diskusi prompt & bantuan teknis ·{" "}
                 {guideProvider === "ollama"
                   ? "Ollama lokal"
-                  : guideProvider === "bonsai"
-                    ? "Bonsai lokal"
-                    : selectedProvider?.label || "OpenRouter"}
+                  : selectedProvider?.label || "OpenRouter"}
               </small>
             </div>
             <button
@@ -303,13 +304,12 @@ export default function GuideChat({
                 onChange={(event) => void chooseProvider(event.target.value)}
               >
                 <option value="ollama">Local AI · Ollama</option>
-                <option value="bonsai">Local AI · Bonsai 27B</option>
                 {providers.map((item) => (
                   <option key={item.id} value={`api:${item.id}`}>
                     OpenRouter · {item.label}
                   </option>
                 ))}
-                {!["ollama", "bonsai"].includes(guideProvider) &&
+                {!["ollama"].includes(guideProvider) &&
                   !selectedProvider && (
                     <option value={guideProvider} disabled>
                       OpenRouter connection unavailable
@@ -351,7 +351,7 @@ export default function GuideChat({
                   : "otomatis"}
             </span>
             <span>
-              {["ollama", "bonsai"].includes(guideProvider)
+              {guideProvider === "ollama"
                 ? "Riwayat tersimpan lokal"
                 : "Riwayat dikirim ke OpenRouter"}
             </span>

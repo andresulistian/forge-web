@@ -97,7 +97,7 @@ test("research context reaches each selected agent and API provider without chan
   const seen = [];
   agents.codex.models = async () => [{ model: "model" }];
   agents.apiProviders.store = { messages: () => [] };
-  for (const name of ["codex", "gemini", "ollama", "bonsai"]) {
+  for (const name of ["codex", "gemini", "ollama"]) {
     agents[name].turn = async (...args) => seen.push({ name, args });
     agents[name].active = null;
   }
@@ -105,7 +105,7 @@ test("research context reaches each selected agent and API provider without chan
     seen.push({ name: "api", args });
   agents.apiProviders.active = null;
   const project = { id: "sample" };
-  for (const provider of ["codex", "gemini", "ollama", "bonsai", "api:one"])
+  for (const provider of ["codex", "gemini", "ollama", "api:one"])
     await agents.turn(
       project,
       "ask",
@@ -116,9 +116,9 @@ test("research context reaches each selected agent and API provider without chan
       "Pertanyaan",
       "\nSumber: https://example.org",
     );
-  assert.equal(seen.length, 5);
-  for (const item of seen.slice(0, 4))
+  assert.equal(seen.length, 4);
+  for (const item of seen.slice(0, 3))
     assert.match(item.args[2], /Sumber: https:\/\/example.org/);
-  assert.equal(seen[4].args[2], "Pertanyaan");
-  assert.match(seen[4].args[6], /Sumber: https:\/\/example.org/);
+  assert.equal(seen[3].args[2], "Pertanyaan");
+  assert.match(seen[3].args[6], /Sumber: https:\/\/example.org/);
 });

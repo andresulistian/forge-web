@@ -1,7 +1,6 @@
 import { Codex } from "./codex.mjs";
 import { Gemini, GEMINI_MODELS } from "./gemini.mjs";
 import { Ollama, DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL } from "./ollama.mjs";
-import { Bonsai } from "./bonsai.mjs";
 import { ApiProviders } from "./api-providers.mjs";
 import { UniversalAgentCore, agentAdapter } from "./agent-core.mjs";
 export class Agents {
@@ -11,7 +10,6 @@ export class Agents {
     );
     this.gemini = new Gemini(emit, runtimeDir);
     this.ollama = new Ollama(emit, dataDir, globalThis.fetch, store);
-    this.bonsai = new Bonsai(emit, dataDir, globalThis.fetch, store);
     this.apiProviders = new ApiProviders(store, emit);
     this.core = new UniversalAgentCore(emit);
     const register = (id, label, matches, stop) =>
@@ -35,9 +33,6 @@ export class Agents {
     register("ollama", "Ollama", (provider) => provider === "ollama", () =>
       this.ollama.stop(),
     );
-    register("bonsai", "Bonsai", (provider) => provider === "bonsai", () =>
-      this.bonsai.stop(),
-    );
     register(
       "api",
       "API Provider",
@@ -50,7 +45,6 @@ export class Agents {
       this.codex.active ||
       this.gemini.active ||
       this.ollama.active ||
-      this.bonsai.active ||
       this.apiProviders.active
     );
   }
@@ -59,7 +53,6 @@ export class Agents {
       ...this.codex.approvals,
       ...this.gemini.approvals,
       ...this.ollama.approvals,
-      ...this.bonsai.approvals,
       ...this.apiProviders.approvals,
     ]);
   }
@@ -82,30 +75,9 @@ export class Agents {
         };
       }
     }
-    if (provider === "bonsai") {
-      try {
-        return await this.bonsai.catalog(project);
-      } catch (e) {
-        return {
-          provider,
-          connected: false,
-          local: true,
-          models: [],
-          error: e.message,
-        };
-      }
-    }
     if (provider === "gemini") {
       try {
-        const info = await this.gemini.connect();
-        const session = project ? await this.gemini.session(project) : null;
-        return {
-          provider,
-          connected: true,
-          authenticated: !!session,
-          models: GEMINI_MODELS,
-          info: info.agentInfo,
-        };
+        return await this.gemini.catalog(project);
       } catch (e) {
         return {
           provider,
@@ -213,15 +185,6 @@ export class Agents {
         media,
         rawText,
       );
-    if (provider === "bonsai")
-      return this.bonsai.turn(
-        project,
-        mode,
-        text + webContext,
-        model || (await this.bonsai.defaultGuideModel()),
-        media,
-        rawText,
-      );
     if (provider !== "codex") throw Error("Provider tidak valid.");
     if (model) {
       const models = await this.codex.models();
@@ -260,7 +223,6 @@ export class Agents {
     if (String(id).startsWith("api:"))
       return this.apiProviders.decide(id, accept);
     if (String(id).startsWith("ollama:")) return this.ollama.decide(id, accept);
-    if (String(id).startsWith("bonsai:")) return this.bonsai.decide(id, accept);
     return String(id).startsWith("gemini:")
       ? this.gemini.decide(id, accept)
       : this.codex.decide(id, accept);
@@ -270,17 +232,14 @@ export class Agents {
       ? this.apiProviders.stop()
       : this.ollama.active
         ? this.ollama.stop()
-        : this.bonsai.active
-          ? this.bonsai.stop()
-          : this.gemini.active
-            ? this.gemini.stop()
-            : this.codex.stop();
+        : this.gemini.active
+          ? this.gemini.stop()
+          : this.codex.stop();
   }
   async close() {
     this.apiProviders.stop();
     this.codex.close();
     this.gemini.close();
     await this.ollama.close();
-    await this.bonsai.close();
   }
 }

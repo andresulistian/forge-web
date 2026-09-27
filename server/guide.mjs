@@ -2,9 +2,8 @@ const SYSTEM =
   "Anda adalah Forge Guide, pendamping pengguna pemula. Bantu mengubah ide menjadi prompt Build yang jelas dan siap disalin, mendiagnosis kendala teknis dengan langkah kecil, dan menjelaskan istilah secara sederhana. Saat menyusun prompt, sertakan tujuan, konteks, batasan, hasil yang diharapkan, dan verifikasi. Anda tidak memiliki akses file atau tool dan tidak boleh mengaku sudah mengubah proyek. Jawab dalam Bahasa Indonesia.";
 
 export class Guide {
-  constructor(ollama, providers, emit, bonsai = null) {
+  constructor(ollama, providers, emit) {
     this.ollama = ollama;
-    this.bonsai = bonsai;
     this.providers = providers;
     this.emit = emit;
     this.enabled = false;
@@ -12,23 +11,19 @@ export class Guide {
   }
 
   async open(provider = "ollama") {
-    if (this.active || this.ollama.guideActive || this.bonsai?.guideActive)
+    if (this.active || this.ollama.guideActive)
       throw Error("Tunggu Forge Guide selesai sebelum mengganti provider.");
     if (
       provider !== "ollama" &&
-      provider !== "bonsai" &&
       !provider.startsWith("api:")
     )
       throw Error("Provider Guide tidak didukung.");
-    if (provider === "bonsai" && !this.bonsai)
-      throw Error("Server Bonsai belum dikonfigurasi di Forge.");
     if (
       provider.startsWith("api:") &&
       this.providers.find(provider.slice(4)).type !== "openrouter"
     )
       throw Error("Forge Guide mendukung OpenRouter atau Local AI.");
     await this.ollama.setGuideEnabled(provider === "ollama");
-    if (this.bonsai) await this.bonsai.setGuideEnabled(provider === "bonsai");
     this.enabled = true;
     return { enabled: true, provider };
   }
@@ -37,7 +32,6 @@ export class Guide {
     this.enabled = false;
     this.active?.controller.abort();
     await this.ollama.setGuideEnabled(false);
-    if (this.bonsai) await this.bonsai.setGuideEnabled(false);
     return { enabled: false };
   }
 
@@ -68,17 +62,6 @@ export class Guide {
       );
       return { ok: true };
     }
-    if (provider === "bonsai") {
-      if (!this.bonsai) throw Error("Bonsai belum tersedia.");
-      if (!this.bonsai.guideEnabled) await this.open("bonsai");
-      await this.bonsai.guideTurn(
-        project,
-        text,
-        context,
-        model || (await this.bonsai.defaultGuideModel()),
-      );
-      return { ok: true };
-    }
     if (!provider?.startsWith("api:"))
       throw Error("Provider Guide tidak didukung.");
     const config = this.providers.find(provider.slice(4));
@@ -91,7 +74,6 @@ export class Guide {
     if (!selected.includes(chosen))
       throw Error("Model belum dipilih di Settings OpenRouter.");
     if (this.ollama.guideEnabled) await this.ollama.setGuideEnabled(false);
-    if (this.bonsai?.guideEnabled) await this.bonsai.setGuideEnabled(false);
     const controller = new AbortController();
     const scope = this.ollama.guideScope(project);
     this.active = { scope, controller };

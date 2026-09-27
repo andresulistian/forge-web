@@ -78,11 +78,9 @@ const providerName = (provider?: string) =>
     ? "Gemini"
     : provider === "ollama"
       ? "Local AI"
-      : provider === "bonsai"
-        ? "Bonsai"
-        : provider?.startsWith("api:")
-          ? "API Provider"
-          : "Codex";
+      : provider?.startsWith("api:")
+        ? "API Provider"
+        : "Codex";
 const hints = {
   ask: "Tanya dan pelajari proyek. File tidak diubah.",
   plan: "Susun rencana sebelum mulai. File tidak diubah.",

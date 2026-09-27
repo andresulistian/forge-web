@@ -133,7 +133,7 @@ function emit(type, payload) {
   }
 }
 const codex = new Agents(emit, path.join(data, "runtime"), data, ws.store);
-const guide = new Guide(codex.ollama, codex.apiProviders, emit, codex.bonsai);
+const guide = new Guide(codex.ollama, codex.apiProviders, emit);
 const attachments = new Attachments(data);
 const deploy = new DeployManager(data, emit, ws.store);
 const monitoring = new Monitoring(ws.store, emit);
@@ -366,7 +366,6 @@ const server = http.createServer(async (req, res) => {
         codex.active ||
         guide.active ||
         codex.ollama.guideActive ||
-        codex.bonsai.guideActive ||
         deploy.active ||
         busy ||
         terminal
@@ -403,7 +402,7 @@ const server = http.createServer(async (req, res) => {
       if (typeof b.text !== "string" || !b.text.trim() || b.text.length > 12000)
         throw Error("Pesan Guide kosong atau terlalu panjang.");
       if (!guide.enabled) throw Error("Buka Forge Guide terlebih dahulu.");
-      if (guide.active || codex.ollama.guideActive || codex.bonsai.guideActive)
+      if (guide.active || codex.ollama.guideActive)
         throw Error("Forge Guide masih menjawab.");
       const result = await web.prepare(b.text, b.webMode || "auto");
       return json(
@@ -476,7 +475,6 @@ const server = http.createServer(async (req, res) => {
         codex.active ||
         guide.active ||
         codex.ollama.guideActive ||
-        codex.bonsai.guideActive ||
         deploy.active ||
         busy ||
         terminal?.projectId === p.id
@@ -545,7 +543,6 @@ const server = http.createServer(async (req, res) => {
             codex.active ||
             guide.active ||
             codex.ollama.guideActive ||
-            codex.bonsai.guideActive ||
             deploy.active
           )
             throw Error(
@@ -558,7 +555,6 @@ const server = http.createServer(async (req, res) => {
             codex.active ||
             guide.active ||
             codex.ollama.guideActive ||
-            codex.bonsai.guideActive ||
             deploy.active
           )
             throw Error("Tunggu agent dan deploy selesai sebelum pemulihan.");
@@ -581,17 +577,7 @@ const server = http.createServer(async (req, res) => {
             b.provider === "ollama",
             b.provider === "ollama" ? b.model || "" : "",
           );
-          return json(
-            res,
-            await codex.bonsai.select(
-              b.provider === "bonsai",
-              b.provider === "bonsai" ? b.model || "" : "",
-            ),
-          );
-        case "/api/ollama/memory/clear":
-          return json(res, await codex.ollama.clearMemory(p));
-        case "/api/bonsai/memory/clear":
-          return json(res, await codex.bonsai.clearMemory(p));
+          return json(res, { ok: true });
         case "/api/projects/create":
           return json(res, await ws.create(b.name));
         case "/api/projects/open":
