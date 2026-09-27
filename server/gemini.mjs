@@ -4,6 +4,8 @@ import { createInterface } from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { sanitizeEnv } from "./env.mjs";
+import { killProcess } from "./process-kill.mjs";
 
 export function geminiBinary() {
   return (
@@ -49,6 +51,7 @@ export class Gemini {
         stdio: ["pipe", "pipe", "pipe"],
         cwd: this.runtimeDir,
         detached: process.platform !== "win32",
+        env: sanitizeEnv(),
       },
     );
     this.child = child;
@@ -348,14 +351,7 @@ export class Gemini {
       }, 10000).unref();
   }
   killTree() {
-    try {
-      if (this.child?.pid) {
-        if (process.platform === "win32") this.child.kill();
-        else process.kill(-this.child.pid, "SIGTERM");
-      }
-    } catch {
-      /* already exited */
-    }
+    killProcess(this.child, 2000);
   }
   close() {
     this.killTree();

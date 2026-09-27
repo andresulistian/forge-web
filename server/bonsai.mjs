@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Ollama } from "./ollama.mjs";
+import { sanitizeEnv } from "./env.mjs";
 
 function bonsaiUrl() {
   const url = new URL(
@@ -158,6 +159,7 @@ export class Bonsai extends Ollama {
       cwd: root,
       detached: process.platform !== "win32",
       stdio: ["ignore", "ignore", "pipe"],
+      env: sanitizeEnv(),
     });
     this.ownedServer = child;
     let diagnostic = "";

@@ -6,6 +6,7 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { privateName, safeFile } from "./workspace.mjs";
+import { sanitizeEnv } from "./env.mjs";
 
 const exec = promisify(execFile);
 const DEFAULT_MODEL = "qwen3.5:9b-mlx";
@@ -190,6 +191,7 @@ export class Ollama {
     const child = spawn(ollamaBinary(), ["serve"], {
       detached: process.platform !== "win32",
       stdio: ["ignore", "ignore", "pipe"],
+      env: sanitizeEnv(),
     });
     this.ownedServer = child;
     let diagnostic = "";

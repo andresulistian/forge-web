@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import Editor, { loader, type OnMount } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
 // Relative worker imports deliberately bypass Monaco's restrictive package exports.
@@ -60,8 +61,12 @@ export default function MonacoCodeEditor({
   onChange: (value: string) => void;
   onSave: () => void;
 }) {
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
   const mount: OnMount = (editor, monaco) => {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, onSave);
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
+      onSaveRef.current(),
+    );
     editor.focus();
   };
 

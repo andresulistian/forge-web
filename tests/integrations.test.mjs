@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -565,6 +565,25 @@ test("API provider rejects insecure endpoints", async () => {
       defaultModel: "claude-test",
     }),
     /HTTPS/,
+  );
+});
+
+test("GitHub backup runs Security Gate before committing", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "forge-backup-secgate-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const projectPath = path.join(dir, "project");
+  await mkdir(projectPath, { recursive: true });
+  await writeFile(path.join(projectPath, "index.html"), "<html></html>");
+  await writeFile(path.join(projectPath, ".env.local"), "SECRET=1");
+  const manager = new GitHubManager(dir, () => {}, {
+    exec: async () => ({ stdout: "", stderr: "" }),
+  });
+  await assert.rejects(
+    manager.backup(
+      { id: "p1", path: projectPath, name: "project" },
+      { message: "test", repository: "owner/repo" },
+    ),
+    /Security Gate/,
   );
 });
 

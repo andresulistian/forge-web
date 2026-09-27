@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { sanitizeEnv } from "./env.mjs";
 
 const run = promisify(execFile);
 
@@ -45,7 +46,7 @@ export class CredentialStore {
             "account",
             key,
           ],
-          { stdio: ["pipe", "ignore", "pipe"] },
+          { stdio: ["pipe", "ignore", "pipe"], env: sanitizeEnv() },
         );
         let diagnostic = "";
         child.stderr.on("data", (chunk) => {

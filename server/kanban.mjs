@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { privateName } from "./workspace.mjs";
+import { sanitizeEnv } from "./env.mjs";
 
 export const COLUMNS = ["backlog", "todo", "in_progress", "review_test", "done"];
 export const MODES = ["economy", "balanced", "maximum"];
@@ -104,7 +105,7 @@ function runScript(cwd, script, timeout = CHECK_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["run", script], {
       cwd,
-      env: { ...process.env, CI: "1", FORCE_COLOR: "0" },
+      env: { ...sanitizeEnv(), CI: "1", FORCE_COLOR: "0" },
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,

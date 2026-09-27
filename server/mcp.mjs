@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { sanitizeEnv } from "./env.mjs";
 
 const cleanList = (value) =>
   Array.isArray(value)
@@ -77,7 +78,7 @@ export class McpManager {
     });
     const child = this.spawn(config.command, config.args, {
       cwd: project?.path || process.cwd(),
-      env: { ...process.env },
+      env: sanitizeEnv(),
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
     });

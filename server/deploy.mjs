@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { sanitizeEnv } from "./env.mjs";
+import { killProcess } from "./process-kill.mjs";
 import { privateName } from "./workspace.mjs";
 import { securityAudit } from "./security.mjs";
 import { ReleaseHistory, releaseUrl } from "./releases.mjs";
@@ -267,7 +269,7 @@ export class DeployManager {
   spawn(project, executable, args, label, extraEnv = {}) {
     const child = spawn(executable, args, {
       cwd: project.path,
-      env: { ...process.env, ...extraEnv, NO_COLOR: "1" },
+      env: { ...sanitizeEnv(), ...extraEnv, NO_COLOR: "1" },
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
     });
@@ -515,8 +517,7 @@ export class DeployManager {
     if (this.active.operation === "rollback" && !child)
       throw Error("Rollback online sudah dimulai dan tidak dapat dihentikan.");
     if (child) {
-      if (process.platform === "win32") child.kill();
-      else process.kill(-child.pid, "SIGTERM");
+      killProcess(child, 2000);
     }
     return { ok: true };
   }

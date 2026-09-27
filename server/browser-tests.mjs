@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { sanitizeEnv } from "./env.mjs";
 
 const choices =
   process.platform === "darwin"
@@ -158,7 +159,7 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
         `--user-data-dir=${profile}`,
         "about:blank",
       ],
-      { stdio: "ignore" },
+      { stdio: "ignore", env: sanitizeEnv() },
     );
     let exited = false;
     let spawnError = null;

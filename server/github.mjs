@@ -3,6 +3,8 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import { securityAudit } from "./security.mjs";
+
 const defaultExec = promisify(execFile);
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
@@ -206,6 +208,8 @@ export class GitHubManager {
         await this.command("git", ["config", "user.email", "forge@localhost"], {
           cwd: project.path,
         });
+        const audit = await securityAudit(project, { artifact: false, uploadsSource: true });
+        if (!audit.passed) throw Error(this.formatAuditError(audit));
         await this.command("git", ["add", "-A"], { cwd: project.path });
         await this.command("git", ["commit", "--allow-empty", "-m", message], {
           cwd: project.path,
@@ -243,6 +247,8 @@ export class GitHubManager {
           throw Error(
             "Remote memiliki perubahan baru. Jalankan pull dan selesaikan conflict sebelum Backup Now.",
           );
+        const audit = await securityAudit(project, { artifact: false, uploadsSource: true });
+        if (!audit.passed) throw Error(this.formatAuditError(audit));
         await this.command("git", ["add", "-A"], { cwd: project.path });
         const { stdout: changes } = await this.command(
           "git",
@@ -275,5 +281,14 @@ export class GitHubManager {
       });
       throw error;
     }
+  }
+
+  formatAuditError(audit) {
+    const count = audit.findings.filter((f) => f.blocking).length;
+    const files = audit.findings
+      .filter((f) => f.blocking)
+      .map((f) => f.file)
+      .slice(0, 5);
+    return `Security Gate memblokir backup: ${count} temuan. ${files.join(", ")}`;
   }
 }

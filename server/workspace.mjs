@@ -6,6 +6,8 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { Store } from "./store.mjs";
 const exec = promisify(execFile);
+
+/** Names / path segments that should never be read, written, or sent to the agent. */
 export const privateName = (n) => {
   const lower = typeof n === "string" ? n.toLowerCase() : String(n).toLowerCase();
   return (
@@ -14,8 +16,19 @@ export const privateName = (n) => {
     lower === "node_modules" ||
     lower === "target" ||
     lower === "dist" ||
+    lower === "build" ||
+    lower === "out" ||
     (lower.startsWith(".env") && lower !== ".env.example") ||
-    /\.(pem|key)$/.test(lower)
+    /^\.(npmrc|yarnrc|pypirc|netrc|git-credentials|pgpass|aws|kube|docker|ssh|terraform|tfvars|envrc|doppler)$/.test(
+      lower,
+    ) ||
+    /^(credentials|service-account.*|google-services|serviceaccount)\.json$/.test(
+      lower,
+    ) ||
+    /\.(pem|key|p12|pfx|keystore|jks)$/.test(lower) ||
+    /^(id_rsa|id_ecdsa|id_ed25519|id_dsa|known_hosts|authorized_keys)$/.test(
+      lower,
+    )
   );
 };
 export async function safeFile(root, relative) {
@@ -252,7 +265,7 @@ export class Workspace {
       await this.git(p, ["config", "core.bare", "false"]);
       await fs.writeFile(
         path.join(this.gitDir(p), "info/exclude"),
-        ".git\n.forge\nnode_modules\ndist\ntarget\n.env\n.env.*\n!.env.example\n*.pem\n*.key\n.DS_Store\n",
+        ".git\n.forge\nnode_modules\ndist\ntarget\nbuild\nout\n.env\n.env.*\n!.env.example\n*.pem\n*.key\n*.p12\n*.pfx\n*.keystore\n*.jks\n.envrc\n.env.local\n.env.*.local\ncredentials.json\nservice-account*.json\ngoogle-services.json\n.npmrc\n.yarnrc\n.pypirc\n.netrc\n.git-credentials\n.pgpass\n.id_rsa\nid_ecdsa\nid_ed25519\nid_dsa\nknown_hosts\nauthorized_keys\n.DS_Store\n",
       );
     }
   }

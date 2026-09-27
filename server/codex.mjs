@@ -4,6 +4,8 @@ import { createInterface } from "node:readline";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { sanitizeEnv } from "./env.mjs";
+import { killProcess } from "./process-kill.mjs";
 export function codexBinary() {
   return (
     process.env.FORGE_CODEX_BIN ||
@@ -49,6 +51,7 @@ export class Codex {
   async start() {
     this.child = spawn(codexBinary(), ["app-server", "--listen", "stdio://"], {
       stdio: ["pipe", "pipe", "pipe"],
+      env: sanitizeEnv(),
     });
     this.stderr = "";
     const child = this.child;
@@ -123,12 +126,13 @@ export class Codex {
       return;
     }
     if (msg.id !== undefined) {
-      if (
-        [
-          "item/commandExecution/requestApproval",
-          "item/fileChange/requestApproval",
-        ].includes(msg.method)
-      ) {
+      const approvalMethods = [
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "permissions/requestApproval",
+        "mcpServer/elicitation/requestApproval",
+      ];
+      if (approvalMethods.includes(msg.method)) {
         const request = {
           id: msg.id,
           method: msg.method,
@@ -151,11 +155,14 @@ export class Codex {
       }
       return;
     }
-    const projectId = this.active?.projectId;
-    this.emit("codex", { ...msg, projectId });
     if (msg.method === "turn/completed") {
       this.active = null;
       this.approvals.clear();
+    }
+    const projectId = this.active?.projectId;
+    this.emit("codex", { ...msg, projectId });
+    if (msg.method === "turn/completed") {
+      this.emit("project-files-changed", { projectId });
     }
   }
   async models() {
@@ -219,12 +226,14 @@ export class Codex {
       if (!this.thread) {
         const r = await this.request("thread/start", {
           cwd: project.path,
+          // Build intentionally uses "on-request" so every risky command or file
+          // change is routed through Forge's approval UI before it can run.
           approvalPolicy: mode === "build" ? "on-request" : "never",
           approvalsReviewer: "user",
           sandbox: mode === "build" ? "workspace-write" : "read-only",
           ...(model ? { model } : {}),
           developerInstructions:
-            "Respond in Indonesian for a beginner. Follow the Forge mode on each turn: Ask explains and inspects only, Plan produces a plan without modifying files, Build implements and tests requested changes. Request approval for sensitive operations.",
+            "Respond in Indonesian for a beginner. Follow the Forge mode on each turn: Ask explains and inspects only, Plan produces a plan without modifying files, Build implements and tests requested changes. Never read or send credential files (.env*, credentials.json, service-account*.json, *.pem, *.key, .npmrc, id_rsa, .pgpass, .netrc). Request explicit user approval before running any shell command or modifying files.",
         });
         this.thread = { id: r.thread.id, projectId: project.id };
         this.threads.set(project.id, this.thread);
@@ -272,6 +281,6 @@ export class Codex {
       });
   }
   close() {
-    this.child?.kill();
+    killProcess(this.child, 3000);
   }
 }

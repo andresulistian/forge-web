@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { privateName } from "./workspace.mjs";
+import { sanitizeEnv } from "./env.mjs";
 
 const ignored = new Set([
   "node_modules",
@@ -122,9 +124,17 @@ export async function scanFiles(
       const environmentFile =
         /^\.env(?:\.|$)/i.test(entry.name) && !/\.example$/i.test(entry.name);
       const credentialFile =
-        /^(?:credentials|service-account.*)\.json$/i.test(entry.name) ||
-        /\.(?:pem|key)$/i.test(entry.name);
-      if (environmentFile || credentialFile) {
+        /^(?:credentials|service-account.*|google-services)\.json$/i.test(
+          entry.name,
+        ) ||
+        /\.(?:pem|key|p12|pfx|keystore|jks)$/i.test(entry.name) ||
+        /^\.(npmrc|yarnrc|pypirc|netrc|git-credentials|pgpass)$/.test(
+          entry.name,
+        ) ||
+        /^(id_rsa|id_ecdsa|id_ed25519|id_dsa|known_hosts|authorized_keys)$/.test(
+          entry.name,
+        );
+      if (privateName(entry.name) || environmentFile || credentialFile) {
         const exposure = artifact || uploadsSource;
         findings.push(
           issue(
@@ -207,20 +217,11 @@ export async function auditDependencies(root) {
   }
 
   const output = await new Promise((resolve) => {
-    const child = spawn(
-      "npm",
-      [
-        "audit",
-        "--json",
-        "--omit=dev",
-        "--package-lock-only",
-        "--ignore-scripts",
-      ],
-      {
-        cwd: root,
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
+    const child = spawn("npm", ["audit", "--json", "--omit=dev", "--package-lock-only", "--ignore-scripts"], {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: sanitizeEnv(),
+    });
     let data = "";
     let stopped = false;
     const timer = setTimeout(() => {
@@ -274,11 +275,11 @@ export async function auditDependencies(root) {
 
 export async function securityAudit(
   project,
-  { target = "web", hosting = "cloudflare", directory, artifact = false } = {},
+  { target = "web", hosting = "cloudflare", directory, artifact = false, uploadsSource } = {},
 ) {
   const findings = await scanFiles(directory || project.path, {
     artifact,
-    uploadsSource: !artifact && (target !== "web" || hosting === "vercel"),
+    uploadsSource: uploadsSource ?? (!artifact && (target !== "web" || hosting === "vercel")),
   });
   if (!artifact) findings.push(...(await auditDependencies(project.path)));
   return {

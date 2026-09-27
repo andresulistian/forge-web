@@ -21,6 +21,8 @@ import { Skills } from "./skills.mjs";
 import { ProjectMemory } from "./project-memory.mjs";
 import { ActivityCenter } from "./activity.mjs";
 import { KanbanManager, MODES as MODES_KANBAN } from "./kanban.mjs";
+import { sanitizeEnv } from "./env.mjs";
+import { killProcess } from "./process-kill.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const data = process.env.FORGE_DATA_DIR || path.join(root, ".forge");
 const ws = new Workspace(
@@ -144,25 +146,17 @@ const skills = new Skills(ws.store);
 const projectMemory = new ProjectMemory(ws.store);
 activity = new ActivityCenter(ws.store, ws);
 function stopPreview() {
-  if (!preview) return;
-  try {
-    if (process.platform === "win32") preview.child.kill();
-    else process.kill(-preview.child.pid, "SIGTERM");
-  } catch {
-    /* already exited */
-  }
+  const child = preview?.child;
   preview = null;
+  if (!child) return;
+  killProcess(child, 2000);
   emit("preview", { url: null });
 }
 function stopTerminal() {
-  if (!terminal) return;
-  try {
-    if (process.platform === "win32") terminal.child.kill();
-    else process.kill(-terminal.child.pid, "SIGTERM");
-  } catch {
-    /* already exited */
-  }
+  const child = terminal?.child;
   terminal = null;
+  if (!child) return;
+  killProcess(child, 2000);
 }
 async function freePort() {
   return new Promise((resolve) => {
@@ -666,7 +660,7 @@ const server = http.createServer(async (req, res) => {
                 };
           const child = spawn(shell.file, shell.args, {
             cwd: p.path,
-            env: { ...process.env, FORCE_COLOR: "0" },
+            env: { ...sanitizeEnv(), FORCE_COLOR: "0" },
             detached: process.platform !== "win32",
             stdio: ["ignore", "pipe", "pipe"],
           });
@@ -767,6 +761,7 @@ const server = http.createServer(async (req, res) => {
             file: b.file,
             changed: result.changed,
           });
+          emit("project-files-changed", { projectId: p.id });
           return json(res, result);
         }
         case "/api/restore":
@@ -952,7 +947,7 @@ const server = http.createServer(async (req, res) => {
             ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(port)],
             {
               cwd: p.path,
-              env: { ...process.env, PORT: String(port) },
+              env: { ...sanitizeEnv(), PORT: String(port) },
               detached: process.platform !== "win32",
               stdio: ["ignore", "pipe", "pipe"],
             },
@@ -1036,6 +1031,8 @@ async function shutdown() {
       /* already stopped */
     }
   await codex.close();
+  // Give active child processes a moment to terminate before closing the server.
+  await new Promise((resolve) => setTimeout(resolve, 300));
   ws.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000).unref();

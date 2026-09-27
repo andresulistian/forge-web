@@ -227,6 +227,25 @@ export default function App() {
       setMessages(m);
     }
   };
+  const refreshFiles = async (projectId: string) => {
+    const p = current.current;
+    if (!p || p.id !== projectId) return;
+    const list = await api<string[]>("files?projectId=" + p.id);
+    setFiles(list);
+    if (file && list.includes(file) && !dirty) {
+      try {
+        const r = await api<{ text: string }>(
+          "file?projectId=" + p.id + "&file=" + encodeURIComponent(file),
+        );
+        if (current.current?.id === p.id) {
+          setSource(r.text);
+          setSavedSource(r.text);
+        }
+      } catch {
+        /* ignore missing file */
+      }
+    }
+  };
   const dirty = source !== savedSource;
   const select = async (p: Project) => {
     if (
@@ -305,6 +324,16 @@ export default function App() {
                 },
               }));
             if (e.type === "security-result") setSecurityRevision((v) => v + 1);
+            if (e.type === "github") {
+              // Refresh GitHub panel and file list after backup/import/pull
+              if (current.current) void refreshFiles(current.current.id);
+            }
+            if (
+              e.type === "project-files-changed" &&
+              current.current?.id === p.projectId
+            ) {
+              void refreshFiles(p.projectId);
+            }
             if (
               e.type === "web-research" &&
               p.status === "completed" &&
@@ -605,7 +634,7 @@ export default function App() {
         )
       )
         return;
-      const rev = revision.current;
+      const rev = ++revision.current;
       const r = await api<{ text: string }>(
         "file?projectId=" +
           selected!.id +
@@ -1999,6 +2028,7 @@ function eventLabel(e: ForgeEvent) {
           : "Uji browser menemukan masalah",
         "approval-resolved": "Persetujuan diproses",
         "manual-edit": "Kode manual disimpan",
+        "project-files-changed": "File proyek diperbarui",
         "terminal-started": `Terminal · ${p.command || "command"}`,
         "terminal-output": "Output terminal",
         "terminal-completed": p.ok ? "Command selesai" : "Command gagal",
