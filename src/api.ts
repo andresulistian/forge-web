@@ -40,7 +40,12 @@ export async function api<T = any>(route: string, data?: unknown): Promise<T> {
     body: data ? JSON.stringify(data) : undefined,
   });
   const value = await res.json();
-  if (!res.ok) throw Error(value.error || "Operasi gagal.");
+  if (!res.ok) {
+    if (res.status === 401) {
+      throw Error("Sesi habis atau server restart. Tutup tab ini dan buka ulang dari launcher Forge Web.");
+    }
+    throw Error(value.error || "Operasi gagal.");
+  }
   return value;
 }
 export async function subscribe(
@@ -75,8 +80,11 @@ export async function subscribe(
           }
         }
       }
-    } catch {
+    } catch (err) {
       onStatus(false);
+      if ((err as Error).message.includes("401")) {
+        throw err;
+      }
     }
     if (!signal.aborted) await new Promise((r) => setTimeout(r, 2000));
   }

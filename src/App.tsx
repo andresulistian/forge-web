@@ -3,7 +3,7 @@ import AiPicker, { initialAi } from "./AiPicker";
 import GuideChat from "./GuideChat";
 import DeployCenter from "./DeployCenter";
 import BrowserTests from "./BrowserTests";
-import MonacoCodeEditor from "./MonacoCodeEditor";
+const MonacoCodeEditor = lazy(() => import("./MonacoCodeEditor"));
 import IntegrationsPanel from "./IntegrationsPanel";
 import PreviewAnnotations, {
   type PreviewAnnotation,
@@ -11,7 +11,7 @@ import PreviewAnnotations, {
 import AgentCenter from "./AgentCenter";
 import KanbanPanel from "./KanbanPanel";
 import { playApprovalSound, unlockNotificationAudio } from "./notifications";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Suspense, lazy } from "react";
 import {
   ArrowUp,
   ArrowUpRight,
@@ -202,6 +202,31 @@ export default function App() {
       setBusy(false);
     }
   };
+  const resetProjectState = (nextProject?: Project | null) => {
+    if (nextProject) {
+      revision.current++;
+      current.current = nextProject;
+      setSelected(nextProject);
+    } else {
+      current.current = null;
+      setSelected(null);
+    }
+    setAttachments([]);
+    setAnnotations([]);
+    setAnnotationMode(false);
+    setLive("");
+    setFile("");
+    setSource("");
+    setSavedSource("");
+    setEditing(false);
+    setMessages([]);
+    setHistory([]);
+    setFiles([]);
+    setApprovals([]);
+    setTeamState({});
+    setPreview(null);
+  };
+
   const decideApproval = async (id: string, accept: boolean) => {
     setError("");
     setResolvingApproval(id);
@@ -253,18 +278,7 @@ export default function App() {
       )
     )
       return false;
-    revision.current++;
-    current.current = p;
-    setSelected(p);
-    setAttachments([]);
-    setAnnotations([]);
-    setAnnotationMode(false);
-    setLive("");
-    setFile("");
-    setSource("");
-    setSavedSource("");
-    setEditing(false);
-    setMessages([]);
+    resetProjectState(p);
     await refresh(p);
     return true;
   };
@@ -431,6 +445,23 @@ export default function App() {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && (modal || confirm || deleting || clearingWorkspace)) {
+        event.preventDefault();
+        setModal(null);
+        setConfirm(null);
+        setDeleting(null);
+        setClearingWorkspace(null);
+        setDeleteConfirmation("");
+        setWorkspaceConfirmation("");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modal, confirm, deleting, clearingWorkspace]);
+
   const send = () =>
     run(async () => {
       if (!selected || (!text.trim() && !attachments.length)) return;
@@ -555,15 +586,7 @@ export default function App() {
       setProjects(result.projects);
       setDeleting(null);
       setDeleteConfirmation("");
-      setSelected(null);
-      current.current = null;
-      setMessages([]);
-      setFiles([]);
-      setFile("");
-      setSource("");
-      setSavedSource("");
-      setHistory([]);
-      setPreview(null);
+      resetProjectState(null);
       if (result.projects[0]) await select(result.projects[0]);
       setRuntime(
         result.deletedFiles
@@ -586,15 +609,7 @@ export default function App() {
       setProjects(result.projects);
       setClearingWorkspace(null);
       setWorkspaceConfirmation("");
-      setSelected(null);
-      current.current = null;
-      setMessages([]);
-      setFiles([]);
-      setFile("");
-      setSource("");
-      setSavedSource("");
-      setHistory([]);
-      setPreview(null);
+      resetProjectState(null);
       setRuntime(
         result.deletedFiles
           ? `${result.count} folder proyek dipindahkan ke Trash · nama dapat digunakan kembali`
@@ -832,7 +847,7 @@ export default function App() {
               }
             >
               {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-              {theme === "dark" ? "Light" : "Dark"}
+              {theme === "dark" ? "Terang" : "Gelap"}
             </button>
             <span className="local-badge">
               <span className="dot" /> LOCAL
@@ -1181,7 +1196,7 @@ export default function App() {
                       !e.nativeEvent.isComposing
                     ) {
                       e.preventDefault();
-                      if (!active && !busy && !deploying) void send();
+                      if (!active && !busy && !deploying && stream) void send();
                     }
                   }}
                 />
@@ -1273,12 +1288,12 @@ export default function App() {
             <div className="tabs">
               {[
                 { id: "preview", icon: Monitor, label: "Preview" },
-                { id: "files", icon: Code2, label: "Code" },
+                { id: "files", icon: Code2, label: "Kode" },
                 { id: "kanban", icon: Columns3, label: "Kanban" },
                 { id: "deploy", icon: Rocket, label: "Deploy" },
                 { id: "agent", icon: Bot, label: "Agent" },
-                { id: "history", icon: History, label: "Checkpoints" },
-                { id: "settings", icon: Settings2, label: "Settings" },
+                { id: "history", icon: History, label: "Checkpoint" },
+                { id: "settings", icon: Settings2, label: "Pengaturan" },
               ].map((t) => (
                 <button
                   key={t.id}
@@ -1290,7 +1305,6 @@ export default function App() {
                 </button>
               ))}
               <span className="pane-spacer" />
-              <span className="muted">WORKBENCH</span>
             </div>
             <div className="workbench">
               {tab === "preview" ? (
@@ -1495,16 +1509,24 @@ export default function App() {
                           </div>
                         </div>
                         {editing ? (
-                          <MonacoCodeEditor
-                            file={file}
-                            value={source}
-                            theme={theme}
-                            onChange={setSource}
-                            onSave={() => {
-                              if (dirty && !busy && !active && !deploying)
-                                void run(saveFile);
-                            }}
-                          />
+                          <Suspense
+                            fallback={
+                              <div className="code-empty">
+                                <Loader2 size={22} className="spin" /> Memuat editor…
+                              </div>
+                            }
+                          >
+                            <MonacoCodeEditor
+                              file={file}
+                              value={source}
+                              theme={theme}
+                              onChange={setSource}
+                              onSave={() => {
+                                if (dirty && !busy && !active && !deploying)
+                                  void run(saveFile);
+                              }}
+                            />
+                          </Suspense>
                         ) : (
                           <div className="code-reader">
                             <pre aria-hidden="true" className="line-numbers">
@@ -1559,24 +1581,10 @@ export default function App() {
                   onChanged={() => setIntegrationRevision((value) => value + 1)}
                   editorDirty={dirty}
                   onRestored={async (restored) => {
-                    current.current = null;
                     setProjects(restored);
-                    setSelected(null);
-                    setPreview(null);
-                    setFile("");
-                    setSource("");
-                    setSavedSource("");
-                    setEditing(false);
-                    setAttachments([]);
-                    setMessages([]);
-                    setHistory([]);
-                    setFiles([]);
+                    resetProjectState(restored[0] || null);
                     setIntegrationRevision((value) => value + 1);
-                    if (restored[0]) {
-                      current.current = restored[0];
-                      setSelected(restored[0]);
-                      await refresh(restored[0]);
-                    }
+                    if (restored[0]) await refresh(restored[0]);
                   }}
                   onSynced={async () => {
                     setFile("");
@@ -2020,7 +2028,7 @@ function eventLabel(e: ForgeEvent) {
         preview: "Status preview berubah",
         "preview-log": "Dev server output",
         "build-finished": p.ok ? "Build selesai · siap diuji" : "Build gagal",
-        "agent-team": `${p.role || "Agent"} · ${p.detail || p.status || "bekerja"}`,
+        "agent-team": `${p.role || "Agen"} · ${p.detail || p.status || "bekerja"}`,
         "browser-result": p.ok
           ? "Uji browser lulus"
           : "Uji browser menemukan masalah",

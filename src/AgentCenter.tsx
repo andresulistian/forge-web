@@ -112,6 +112,10 @@ export default function AgentCenter({
     if (!project) return setData(empty);
     const next = await api<Center>(`agent-center?projectId=${project.id}`);
     setData(next);
+  };
+  const refreshMemoryFields = async () => {
+    if (!project) return;
+    const next = await api<Center>(`agent-center?projectId=${project.id}`);
     setConventions(next.memory.conventions.join("\n"));
     setDecisions(next.memory.decisions.join("\n"));
   };
@@ -124,6 +128,10 @@ export default function AgentCenter({
     );
     return () => window.clearInterval(timer);
   }, [project?.id, active, revision]);
+  useEffect(() => {
+    if (!project) return;
+    refreshMemoryFields().catch(() => {});
+  }, [project?.id]);
 
   const act = async (action: () => Promise<void>) => {
     onBusy(true);

@@ -102,6 +102,7 @@ export default function GuideChat({
     setError("");
     setMessages([]);
     setLive("");
+    setActive(false);
     void (async () => {
       try {
         await api("guide/open", { provider: guideProvider });
@@ -202,6 +203,11 @@ export default function GuideChat({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setActive(false);
+    setLive("");
+  }, [project?.id]);
 
   const send = async (suggestion?: string) => {
     const text = (suggestion || draft).trim();

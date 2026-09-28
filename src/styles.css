@@ -7,7 +7,7 @@
     "Segoe UI",
     sans-serif;
   color: #dedfdf;
-  background: #101112;
+  background: #0a0a0b;
   font-synthesis: none;
   font-size: 13px;
   color-scheme: dark;
@@ -233,7 +233,7 @@ button svg {
 .sidebar {
   width: 224px;
   flex-shrink: 0;
-  background: #141516;
+  background: #0f1011;
   border-right: 1px solid #2a2b2c;
   padding: 29px 17px 0;
   display: flex;
@@ -322,7 +322,7 @@ button svg {
   white-space: nowrap;
 }
 .project.selected {
-  background: #242922;
+  background: #181918;
   border-color: #363f2e;
 }
 .project-icon {
@@ -415,7 +415,7 @@ main {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  background: #141516;
+  background: #0f1011;
 }
 .breadcrumb {
   display: flex;
@@ -605,7 +605,7 @@ h1 {
   padding: 3px;
   border: 1px solid #303530;
   border-radius: 7px;
-  background: #171918;
+  background: #111212;
 }
 .mode-switch button {
   border: 0;
@@ -659,7 +659,7 @@ h1 {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: #111313;
+  background: #0c0c0d;
 }
 .tabs {
   display: flex;
@@ -756,7 +756,7 @@ h1 {
   min-height: 230px;
 }
 .browser-tests {
-  background: #191d19;
+  background: #121312;
   border: 1px solid #313a2f;
   border-top: 0;
   padding: 10px 12px;
@@ -941,7 +941,7 @@ h1 {
   transform: translateX(-50%);
   width: min(360px, calc(100% - 24px));
   padding: 10px;
-  background: #1c211b;
+  background: #141514;
   color: #e1e8dc;
   border: 1px solid #66765b;
   border-radius: 8px;
@@ -975,7 +975,7 @@ h1 {
   padding: 8px 10px;
   border: 1px solid #343b2f;
   border-top: 0;
-  background: #191d19;
+  background: #121312;
   font-size: 10px;
 }
 .annotation-summary span {
@@ -1018,7 +1018,7 @@ h1 {
   color: #779261;
   border: 1px solid #30362d;
   border-radius: 6px;
-  background: #101210;
+  background: #0b0b0b;
   padding-left: 9px;
 }
 .terminal-command input {
@@ -1099,7 +1099,7 @@ time {
 }
 .agent-card {
   min-width: 0;
-  background: #171918;
+  background: #111212;
   border: 1px solid #30342f;
   border-radius: 9px;
   padding: 14px;
@@ -1199,7 +1199,7 @@ time {
 .diff-review pre {
   max-height: 360px;
   overflow: auto;
-  background: #101211;
+  background: #0b0b0c;
   border: 1px solid #2d312c;
   border-radius: 6px;
   padding: 10px;
@@ -1213,7 +1213,7 @@ time {
 .skill-item {
   display: flex;
   min-width: 0;
-  background: #121412;
+  background: #0d0d0e;
   border: 1px solid #2b3029;
   border-radius: 6px;
 }
@@ -1246,7 +1246,7 @@ time {
 .skill-form textarea,
 .memory-card textarea {
   width: 100%;
-  background: #101210;
+  background: #0b0b0b;
   color: #d5d9d2;
   border: 1px solid #30362d;
   border-radius: 6px;
@@ -1713,7 +1713,7 @@ summary > span:nth-child(2) {
   display: grid;
   place-items: center;
   color: #8d958d;
-  background: #171918;
+  background: #111212;
 }
 .integrations-pane {
   height: 100%;
@@ -1752,7 +1752,7 @@ summary > span:nth-child(2) {
   margin-bottom: 14px;
   border: 1px solid #2b2f2c;
   border-radius: 12px;
-  background: #171918;
+  background: #111212;
 }
 .integration-card > header {
   display: flex;
@@ -1798,7 +1798,7 @@ summary > span:nth-child(2) {
   width: 100%;
   border: 1px solid #323633;
   border-radius: 7px;
-  background: #101211;
+  background: #0b0b0c;
   color: #dfe2df;
   padding: 9px 10px;
   text-transform: none;
@@ -1817,7 +1817,7 @@ summary > span:nth-child(2) {
   padding: 10px;
   border: 1px solid #292d2a;
   border-radius: 8px;
-  background: #131514;
+  background: #0e0f0f;
 }
 .integration-item > svg {
   color: #a9bd91;
@@ -1861,7 +1861,7 @@ summary > span:nth-child(2) {
   min-width: 0;
   border: 1px solid #323633;
   border-radius: 7px;
-  background: #101211;
+  background: #0b0b0c;
   color: #dfe2df;
   padding: 9px 10px;
 }
@@ -2115,7 +2115,7 @@ summary > span:nth-child(2) {
 .deploy-settings,
 .deploy-readiness {
   border: 1px solid #30372d;
-  background: #171a17;
+  background: #111311;
   border-radius: 9px;
   padding: 13px;
 }
@@ -2154,7 +2154,7 @@ summary > span:nth-child(2) {
   width: 100%;
   margin-top: 7px;
   font-size: 9px;
-  background: #20271d;
+  background: #181916;
 }
 .stack-pill {
   display: inline-block;
@@ -2439,7 +2439,7 @@ summary > span:nth-child(2) {
   align-items: center;
   gap: 10px;
   border: 1px solid #303b28;
-  background: #1d2319;
+  background: #151615;
   padding: 14px 10px;
   border-radius: 8px;
   margin: 12px 0;
@@ -2475,7 +2475,7 @@ summary > span:nth-child(2) {
 }
 .modal {
   position: relative;
-  background: #1b1f19;
+  background: #131413;
   border: 1px solid #455039;
   border-radius: 16px;
   padding: 32px;
@@ -3200,7 +3200,7 @@ summary > span:nth-child(2) {
   padding: 7px 8px;
   border: 1px solid #3b4635;
   border-radius: 7px;
-  background: #121512;
+  background: #0d0d0d;
   color: #d9dfd3;
   font-size: 10px;
 }
@@ -3320,7 +3320,7 @@ summary > span:nth-child(2) {
   align-items: flex-end;
   gap: 8px;
   padding: 10px 11px 7px;
-  background: #1b1e1b;
+  background: #131413;
   border-top: 1px solid #30362d;
 }
 .guide-composer textarea {
@@ -3328,7 +3328,7 @@ summary > span:nth-child(2) {
   min-height: 56px;
   max-height: 105px;
   resize: vertical;
-  background: #121512;
+  background: #0d0d0d;
   border: 1px solid #3b4635;
   border-radius: 9px;
   color: #d9dfd3;
@@ -3346,7 +3346,7 @@ summary > span:nth-child(2) {
 }
 .guide-panel > footer {
   padding: 0 12px 9px;
-  background: #1b1e1b;
+  background: #131413;
   color: #657060;
   font-size: 7px;
 }
