@@ -42,7 +42,7 @@ export function initialAi(): AiSelection {
   } catch {
     /* default */
   }
-  return { provider: "codex", model: "gpt-6-astra" };
+  return { provider: "codex", model: "" };
 }
 export default function AiPicker({
   value,
@@ -119,7 +119,7 @@ export default function AiPicker({
         if (alive) {
           setCatalog(c);
           if (
-            value.provider === "ollama" &&
+            ["ollama", "codex"].includes(value.provider) &&
             c.models?.length &&
             !c.models.some((item) => item.id === value.model) &&
             c.defaultModel
@@ -171,8 +171,12 @@ export default function AiPicker({
       : value.provider === "ollama"
         ? [{ id: "", name: "Memuat model lokal..." }]
         : [
-            { id: "gpt-6-astra", name: "Astra" },
-            { id: "gpt-5.6-sol", name: "Sol" },
+            {
+              id: "",
+              name: loading
+                ? "Memuat model Codex..."
+                : "Model Codex belum tersedia",
+            },
           ];
   const models = catalog?.models.length
     ? catalog.models
@@ -237,7 +241,7 @@ export default function AiPicker({
                     ? { provider: "gemini", model: "flash" }
                     : e.target.value === "ollama"
                       ? { provider: "ollama", model: "" }
-                      : { provider: "codex", model: "gpt-6-astra" },
+                      : { provider: "codex", model: "" },
               );
             }}
           >
@@ -265,7 +269,7 @@ export default function AiPicker({
               </option>
             )}
             {models.map((m) => (
-              <option key={m.id} value={m.id}>
+              <option key={m.id} value={m.id} disabled={!m.id}>
                 {m.name}
               </option>
             ))}

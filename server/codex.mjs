@@ -17,6 +17,29 @@ export function codexBinary() {
     "codex"
   );
 }
+// Keep Forge's OpenAI catalog independent of global Ollama launcher settings.
+// The login remains shared; no credential is copied into the project or repo.
+export function codexEnvironment(runtimeDir, source = process.env) {
+  const sourceHome = path.resolve(
+    source.CODEX_HOME || path.join(os.homedir(), ".codex"),
+  );
+  const home = path.resolve(
+    runtimeDir || path.join(os.homedir(), ".local/share/forge-web/runtime"),
+    "codex-openai",
+  );
+  if (home === sourceHome)
+    throw Error("Runtime Codex Forge harus terpisah dari konfigurasi global.");
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  const auth = path.join(home, "auth.json");
+  const sourceAuth = path.join(sourceHome, "auth.json");
+  try {
+    fs.lstatSync(auth);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    if (fs.existsSync(sourceAuth)) fs.symlinkSync(sourceAuth, auth);
+  }
+  return { ...sanitizeEnv(source), CODEX_HOME: home };
+}
 export function policy(mode, cwd) {
   if (!["ask", "plan", "build"].includes(mode))
     throw Error("Mode tidak valid.");
@@ -31,8 +54,9 @@ export function policy(mode, cwd) {
     : { type: "readOnly", networkAccess: false };
 }
 export class Codex {
-  constructor(emit) {
+  constructor(emit, runtimeDir) {
     this.emit = emit;
+    this.runtimeDir = runtimeDir;
     this.pending = new Map();
     this.approvals = new Map();
     this.seq = 0;
@@ -51,7 +75,7 @@ export class Codex {
   async start() {
     this.child = spawn(codexBinary(), ["app-server", "--listen", "stdio://"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: sanitizeEnv(),
+      env: codexEnvironment(this.runtimeDir),
     });
     this.stderr = "";
     const child = this.child;

@@ -5,8 +5,9 @@ import { ApiProviders } from "./api-providers.mjs";
 import { UniversalAgentCore, agentAdapter } from "./agent-core.mjs";
 export class Agents {
   constructor(emit, runtimeDir, dataDir = runtimeDir, store = null) {
-    this.codex = new Codex((type, p) =>
-      emit(type, { ...p, provider: "codex" }),
+    this.codex = new Codex(
+      (type, p) => emit(type, { ...p, provider: "codex" }),
+      runtimeDir,
     );
     this.gemini = new Gemini(emit, runtimeDir);
     this.ollama = new Ollama(emit, dataDir, globalThis.fetch, store);
@@ -24,14 +25,23 @@ export class Agents {
           stop,
         }),
       );
-    register("codex", "Codex", (provider) => provider === "codex", () =>
-      this.codex.stop(),
+    register(
+      "codex",
+      "Codex",
+      (provider) => provider === "codex",
+      () => this.codex.stop(),
     );
-    register("gemini", "Gemini", (provider) => provider === "gemini", () =>
-      this.gemini.stop(),
+    register(
+      "gemini",
+      "Gemini",
+      (provider) => provider === "gemini",
+      () => this.gemini.stop(),
     );
-    register("ollama", "Ollama", (provider) => provider === "ollama", () =>
-      this.ollama.stop(),
+    register(
+      "ollama",
+      "Ollama",
+      (provider) => provider === "ollama",
+      () => this.ollama.stop(),
     );
     register(
       "api",
@@ -95,11 +105,7 @@ export class Agents {
         connected: true,
         models: models.map((m) => ({
           id: m.model,
-          name: /astra/i.test(m.model)
-            ? "Astra"
-            : /sol/i.test(m.model)
-              ? "Sol"
-              : m.displayName,
+          name: m.displayName || m.model,
           isDefault: m.isDefault,
         })),
         defaultModel: models.find((m) => m.isDefault)?.model,
@@ -108,10 +114,7 @@ export class Agents {
       return {
         provider,
         connected: false,
-        models: [
-          { id: "gpt-6-astra", name: "Astra" },
-          { id: "gpt-5.6-sol", name: "Sol" },
-        ],
+        models: [],
         error: e.message,
       };
     }
