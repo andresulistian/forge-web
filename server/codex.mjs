@@ -179,11 +179,11 @@ export class Codex {
       }
       return;
     }
+    const projectId = this.active?.projectId;
     if (msg.method === "turn/completed") {
       this.active = null;
       this.approvals.clear();
     }
-    const projectId = this.active?.projectId;
     this.emit("codex", { ...msg, projectId });
     if (msg.method === "turn/completed") {
       this.emit("project-files-changed", { projectId });

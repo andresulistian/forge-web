@@ -33,7 +33,9 @@ type Skill = {
 };
 type Run = {
   id: string;
+  checkpointId: string | null;
   status: string;
+  error?: string;
   startedAt: number;
   elapsedMs: number;
   provider: string;
@@ -168,6 +170,7 @@ export default function AgentCenter({
         {data.run ? (
           <>
             <strong>{data.run.request}</strong>
+            {data.run.error && <p role="status">{data.run.error}</p>}
             <div className="run-metrics">
               <span>{data.run.provider}{data.run.model ? ` · ${data.run.model}` : ""}</span>
               <span>{Math.round(elapsed / 1000)}s</span>
@@ -221,14 +224,14 @@ export default function AgentCenter({
             <div className="agent-actions">
               {data.run.reviewStatus === "ready" && (
                 <button className="primary" disabled={busy || active} onClick={() => void act(async () => {
-                  await api("review/accept", { projectId: project.id });
+                  await api("review/accept", { projectId: project.id, runId: data.run!.id, checkpointId: data.run!.checkpointId });
                   await onProjectChanged();
                 })}><Check size={13} /> Accept</button>
               )}
               <button disabled={busy || active} onClick={() => {
                 if (!window.confirm("Undo seluruh perubahan dari run agent ini? Forge membuat checkpoint pemulihan terlebih dahulu.")) return;
                 void act(async () => {
-                  await api("review/undo", { projectId: project.id, confirmed: true });
+                  await api("review/undo", { projectId: project.id, runId: data.run!.id, checkpointId: data.run!.checkpointId, confirmed: true });
                   await onProjectChanged();
                 });
               }}><RotateCcw size={13} /> Undo</button>

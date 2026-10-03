@@ -63,7 +63,7 @@ export class ActivityCenter {
     return next;
   }
 
-  async finish(project, error = null) {
+  async finish(project, error = null, status = null) {
     const run = this.current(project.id);
     if (!run || run.status !== "running") return run;
     let diff = null;
@@ -74,9 +74,10 @@ export class ActivityCenter {
         patch: "",
         error: cause.message,
       }));
+    if (this.current(project.id)?.id !== run.id) return this.current(project.id);
     const finishedAt = Date.now();
     const next = this.update(project.id, {
-      status: error ? "failed" : "completed",
+      status: status === "interrupted" ? "interrupted" : error ? "failed" : "completed",
       finishedAt,
       elapsedMs: finishedAt - run.startedAt,
       reviewStatus:
@@ -133,7 +134,7 @@ export class ActivityCenter {
       if (method === "usage" && payload.params)
         this.update(projectId, { usage: payload.params });
       if (method === "turn/completed" && project)
-        await this.finish(project, payload.params?.turn?.error?.message || null);
+        await this.finish(project, payload.params?.turn?.error?.message || (["failed", "interrupted"].includes(payload.params?.turn?.status) ? `Run ${payload.params.turn.status}` : null), payload.params?.turn?.status);
     }
     if (type === "terminal-started") {
       this.record(projectId, "running", "Menjalankan command", payload.command);

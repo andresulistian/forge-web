@@ -1,0 +1,224 @@
+.workflow-strip,
+.visual-review {
+  --visual-border: #343735;
+  --visual-muted: #a5afa4;
+  --visual-bg: #151716;
+  --visual-accent: #d2e8b5;
+}
+.right-pane {
+  container-type: inline-size;
+}
+.workflow-strip {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--visual-border);
+  background: var(--visual-bg);
+  flex-shrink: 0;
+}
+.workflow-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+.workflow-steps button {
+  min-width: 0;
+  min-height: 44px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--visual-border);
+  border-radius: 7px;
+  background: transparent;
+}
+.workflow-steps strong {
+  color: var(--visual-accent);
+  font-size: 12px;
+}
+.workflow-steps small {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--visual-muted);
+  overflow-wrap: anywhere;
+}
+.workflow-next {
+  margin: 7px 0 0;
+  color: var(--visual-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.visual-entry {
+  border: 0;
+  border-bottom: 1px solid #343735;
+  flex-shrink: 0;
+  max-height: 70%;
+  overflow: auto;
+}
+.visual-entry > summary {
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.visual-review {
+  padding: 14px;
+  background: var(--visual-bg);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.visual-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.visual-heading h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.visual-heading span,
+.visual-help {
+  color: var(--visual-muted);
+}
+.visual-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.visual-review label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.visual-review input,
+.visual-review select,
+.visual-review textarea {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--visual-border);
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  padding: 8px;
+  font: inherit;
+}
+.visual-review textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+.visual-review button {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--visual-border);
+  border-radius: 5px;
+}
+.visual-review .visual-opt-in {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.visual-opt-in input {
+  width: 16px;
+  height: 16px;
+}
+.visual-error {
+  color: #ffb8ae;
+}
+.visual-comparison,
+.snapshot-inspector {
+  border: 1px solid var(--visual-border);
+  border-radius: 6px;
+  margin: 12px 0;
+  padding: 10px;
+}
+.visual-review summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.capture-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.capture-figure {
+  margin: 10px 0;
+  min-width: 0;
+}
+.capture-figure figcaption {
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+  color: var(--visual-accent);
+}
+.capture-figure small {
+  display: block;
+  color: var(--visual-muted);
+  font-size: 10px;
+}
+.capture-figure img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--visual-border);
+  box-sizing: border-box;
+}
+.snapshot-inspector .capture-figure {
+  max-width: 900px;
+}
+.target-context {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 12px;
+}
+.target-context code,
+.target-context small {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  color: var(--visual-muted);
+}
+.visual-review p {
+  overflow-wrap: anywhere;
+}
+.visual-review :focus-visible,
+.workflow-strip :focus-visible,
+.visual-entry > summary:focus-visible {
+  outline: 2px solid var(--visual-accent);
+  outline-offset: 3px;
+}
+:root[data-theme="light"] .workflow-strip,
+:root[data-theme="light"] .visual-review {
+  --visual-border: #cbd3c5;
+  --visual-muted: #53614d;
+  --visual-bg: #fff;
+  --visual-accent: #37532b;
+  color: #28322a;
+}
+:root[data-theme="light"] .visual-error {
+  color: #9c3023;
+}
+@container (max-width:560px) {
+  .workflow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .workflow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .capture-pair {
+    grid-template-columns: 1fr;
+  }
+  .visual-entry {
+    max-height: 75%;
+  }
+  .visual-controls label {
+    flex: 1 1 150px;
+  }
+  .visual-review button {
+    min-height: 44px;
+  }
+}

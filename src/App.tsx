@@ -9,6 +9,9 @@ import PreviewAnnotations, {
   type PreviewAnnotation,
 } from "./PreviewAnnotations";
 import AgentCenter from "./AgentCenter";
+import VisualReview from "./VisualReview";
+import { workflowStatus, type VisualState, type EditTarget } from "./workflow";
+import { DraftController } from "./session-draft";
 import KanbanPanel from "./KanbanPanel";
 import { playApprovalSound, unlockNotificationAudio } from "./notifications";
 import { useEffect, useRef, useState, Suspense, lazy } from "react";
@@ -169,6 +172,39 @@ export default function App() {
   );
   const notificationSoundRef = useRef(notificationSound);
   const current = useRef<Project | null>(null);
+  const draftController = useRef<DraftController | null>(null);
+  const [draftReady, setDraftReady] = useState<string | null>(null);
+  const [draftStatus, setDraftStatus] = useState("Memulihkan draft…");
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [visualState, setVisualState] = useState<VisualState | null>(null);
+  const [hasDesign, setHasDesign] = useState(false);
+  const [visualOpen, setVisualOpen] = useState(false);
+  const flow = workflowStatus(visualState?.run || null, visualState?.captures || [], messages.some(m => m.role === "user" && ["ask", "plan"].includes(m.mode || "")), hasDesign);
+  const refreshVisual = async (p: Project) => {
+    const value = await api<VisualState>(`visual?projectId=${p.id}`);
+    if (current.current?.id === p.id) setVisualState(value);
+  };
+  useEffect(() => {
+    if (!selected) return;
+    const p = selected; let alive = true;
+    void refreshVisual(p).catch(e => { if (alive) setError(e.message); });
+    void api(`design-identity?projectId=${p.id}`).then(value => { if (alive && current.current?.id === p.id) setHasDesign(value.exists === true && !value.needsImport); }).catch(() => {});
+    const timer = active ? setInterval(() => void refreshVisual(p).catch(() => {}), 2500) : undefined;
+    return () => { alive = false; clearInterval(timer); };
+  }, [selected?.id, agentRevision, active]);
+  useEffect(() => {
+    const controller = draftController.current;
+    if (!selected || draftReady !== selected.id || controller?.projectId !== selected.id) return;
+    controller.edit({ text, mode, ...ai, tab, target: editTarget ? { captureId: editTarget.captureId, index: editTarget.index } : null });
+    setDraftStatus("Menyimpan draft…");
+    const timer = setTimeout(() => void controller.flush().then(() => { if (draftController.current === controller) setDraftStatus("Draft tersimpan lokal di server"); }).catch(e => { if (draftController.current === controller) setDraftStatus(`Draft belum tersimpan: ${e.message}`); }), 350);
+    return () => clearTimeout(timer);
+  }, [selected?.id, draftReady, text, mode, ai.provider, ai.model, tab, editTarget]);
+  useEffect(() => {
+    const flush = () => { void draftController.current?.flush().catch(() => {}); };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
   const bottom = useRef<HTMLDivElement>(null);
   const revision = useRef(0);
   useEffect(() => {
@@ -211,6 +247,11 @@ export default function App() {
       current.current = null;
       setSelected(null);
     }
+    setDraftReady(null);
+    setEditTarget(null);
+    setVisualState(null);
+    setHasDesign(false);
+    setText("");
     setAttachments([]);
     setAnnotations([]);
     setAnnotationMode(false);
@@ -278,8 +319,28 @@ export default function App() {
       )
     )
       return false;
+    await draftController.current?.flush();
     resetProjectState(p);
+    const controller = new DraftController(p.id, api);
+    draftController.current = controller;
+    await controller.load();
+    if (current.current?.id !== p.id || draftController.current !== controller) return false;
+    if (controller.conflict && !window.confirm("Ada draft lokal belum terkirim yang berbeda dari server. Pulihkan draft lokal? Batal memakai versi server. Tidak ada Build yang dikirim.")) controller.discardLocal();
+    const draft = controller.draft;
+    if (current.current?.id !== p.id || draftController.current !== controller) return false;
+    setText(draft.text);
+    setMode((["ask", "plan", "build"].includes(draft.mode || "") ? draft.mode : "build") as Mode);
+    setAi({ provider: draft.provider || "codex", model: draft.model || "" });
+    setTab(draft.tab || "preview");
+    if (draft.target) {
+      try { const target = await api<EditTarget>("visual/target", { projectId: p.id, ...draft.target }); if (current.current?.id === p.id) setEditTarget(target); }
+      catch { setDraftStatus("Target lama tidak valid; ambil screenshot baru."); }
+    }
+    if (current.current?.id !== p.id) return false;
+    setDraftReady(p.id);
     await refresh(p);
+    const state = await api("state");
+    if (current.current?.id === p.id) setPreview(state.preview);
     return true;
   };
   useEffect(() => {
@@ -296,10 +357,21 @@ export default function App() {
         setApprovals(state.approvals);
         setDeployment(state.deployment || null);
         setConnected(true);
-        if (state.projects[0]) await select(state.projects[0]);
+        const recovered = state.projects.find((p: Project) => p.id === state.session?.projectId) || state.projects[0];
+        if (recovered) await select(recovered);
         void subscribe(
           abort.signal,
           (e) => {
+            if (e.type === "session-state") {
+              setActive(e.payload.active?.projectId || null);
+              setPreview(e.payload.preview);
+              setApprovals(e.payload.approvals);
+              setDeployment(e.payload.deployment || null);
+              setLive("");
+              setAgentRevision(v => v + 1);
+              if (current.current) void refresh(current.current).catch(err => setError(err.message));
+              return;
+            }
             if (e.type === "guide") return;
             if (
               !e.payload.method?.endsWith("/delta") &&
@@ -316,7 +388,7 @@ export default function App() {
             if (e.type === "approval-resolved")
               setApprovals((v) => v.filter((a) => a.id !== p.id));
             if (
-              ["agent-activity", "review-updated", "checkpoint"].includes(e.type) ||
+              ["agent-activity", "review-updated", "checkpoint", "visual-updated"].includes(e.type) ||
               (e.type === "codex" && p.method === "turn/completed")
             )
               setAgentRevision((value) => value + 1);
@@ -422,7 +494,7 @@ export default function App() {
           },
           setStream,
           state.eventId,
-        );
+        ).catch(e => { if (alive) { setStream(false); setError(e.message); } });
       } catch (e) {
         if (alive) setError((e as Error).message);
       }
@@ -519,6 +591,7 @@ export default function App() {
   const retryAgent = (request: Record<string, unknown>) =>
     run(async () => {
       if (!selected || active) return;
+      if (!window.confirm("Jalankan ulang permintaan ini sebagai run baru? Tidak ada aksi dilanjutkan otomatis.")) return;
       const value = String(request.text || "").trim();
       if (!value) return;
       const nextMode = ["ask", "plan", "build"].includes(String(request.mode))
@@ -1173,6 +1246,7 @@ export default function App() {
                 />
                 <textarea
                   aria-label="Pesan untuk Forge"
+                  id="forge-composer"
                   rows={1}
                   value={text}
                   onChange={(e) => {
@@ -1279,12 +1353,20 @@ export default function App() {
                 </div>
               </div>
               <div className="composer-caption">
-                {hints[mode]}
+                {hints[mode]} · {draftStatus}
                 <span>↵ Kirim</span>
               </div>
             </div>
           </section>
           <section className="right-pane">
+            <nav className="workflow-strip" aria-label="Brief Design Build Review">
+              <div className="workflow-steps">
+                <button disabled={!selected} onClick={() => { setMode("plan"); document.getElementById("forge-composer")?.focus(); }}><strong>1 · Brief</strong><small>{flow.brief}</small></button>
+                <button disabled={!selected} onClick={() => setTab("agent")}><strong>2 · Design</strong><small>{flow.design}</small></button>
+                <button disabled={!selected || !!active} onClick={() => { setMode("build"); document.getElementById("forge-composer")?.focus(); }}><strong>3 · Build</strong><small>{flow.build}</small></button>
+                <button disabled={!selected} onClick={() => { setTab("preview"); setVisualOpen(true); }}><strong>4 · Review{flow.accepted ? " · Accepted" : ""}</strong><small>{flow.review}</small></button>
+              </div><p className="workflow-next">Berikutnya: {flow.next}</p>
+            </nav>
             <div className="tabs">
               {[
                 { id: "preview", icon: Monitor, label: "Preview" },
@@ -1309,6 +1391,7 @@ export default function App() {
             <div className="workbench">
               {tab === "preview" ? (
                 <>
+                  {selected && visualState && <details className="visual-entry" open={visualOpen} onToggle={e => setVisualOpen(e.currentTarget.open)}><summary>Screenshot · before / after · click-to-edit</summary><VisualReview key={selected.id} project={selected} state={visualState} active={!!active} ai={ai} target={editTarget} onTarget={target => { if (current.current?.id === selected.id) setEditTarget(target); }} onCompose={value => { if (current.current?.id === selected.id) { setText(old => old.trim() ? `${old}\n\n${value}` : value); setMode("build"); document.getElementById("forge-composer")?.focus(); } }} onChanged={() => refreshVisual(selected)} onProjectChanged={() => refresh(selected)} /></details>}
                   <div className="preview-toolbar">
                     <div className="address">
                       <span className="dot" />

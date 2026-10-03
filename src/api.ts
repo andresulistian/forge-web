@@ -21,10 +21,20 @@ let connection: { url: string; token: string };
 export async function connect() {
   const token =
     new URLSearchParams(location.hash.slice(1)).get("token") ||
-    sessionStorage.getItem("forge-token") ||
+    (() => {
+      try {
+        return sessionStorage.getItem("forge-token");
+      } catch {
+        return null;
+      }
+    })() ||
     "";
   if (token) {
-    sessionStorage.setItem("forge-token", token);
+    try {
+      sessionStorage.setItem("forge-token", token);
+    } catch {
+      /* in-memory connection remains usable */
+    }
     history.replaceState(null, "", location.pathname);
   }
   connection = { url: location.origin, token };
@@ -38,15 +48,30 @@ export async function api<T = any>(route: string, data?: unknown): Promise<T> {
       ...(data ? { "Content-Type": "application/json" } : {}),
     },
     body: data ? JSON.stringify(data) : undefined,
+    keepalive: route === "session",
   });
   const value = await res.json();
   if (!res.ok) {
     if (res.status === 401) {
-      throw Error("Sesi habis atau server restart. Tutup tab ini dan buka ulang dari launcher Forge Web.");
+      throw Error(
+        "401: Sesi habis atau server restart. Buka ulang dari launcher Forge Web; draft tersimpan dapat dipulihkan.",
+      );
     }
     throw Error(value.error || "Operasi gagal.");
   }
   return value;
+}
+export async function apiImage(route: string): Promise<string> {
+  const res = await fetch(connection.url + "/api/" + route, {
+    headers: { Authorization: "Bearer " + connection.token },
+  });
+  if (!res.ok)
+    throw Error(
+      res.status === 401
+        ? "401: Buka ulang Forge dari launcher."
+        : "Screenshot tidak tersedia.",
+    );
+  return URL.createObjectURL(await res.blob());
 }
 export async function subscribe(
   signal: AbortSignal,
@@ -55,12 +80,36 @@ export async function subscribe(
   after = 0,
 ) {
   let last = after;
+  let generation = "";
   while (!signal.aborted) {
     try {
-      const res = await fetch(connection.url + "/api/events?after=" + last, {
-        headers: { Authorization: "Bearer " + connection.token },
-        signal,
+      const state = await api("state");
+      if (signal.aborted) return;
+      // Authoritative snapshot replaces stale cursor/stream; never replay a command.
+      if (generation !== state.generation) last = state.eventId;
+      generation = state.generation;
+      onEvent({
+        id: state.eventId,
+        type: "session-state",
+        payload: state,
+        time: Date.now(),
       });
+      last = state.eventId;
+      const res = await fetch(
+        connection.url +
+          "/api/events?after=" +
+          last +
+          "&generation=" +
+          encodeURIComponent(generation),
+        {
+          headers: { Authorization: "Bearer " + connection.token },
+          signal,
+        },
+      );
+      if (res.status === 401)
+        throw Error(
+          "401: Sesi habis. Buka ulang dari launcher Forge Web; tidak ada aksi yang dikirim ulang.",
+        );
       if (!res.ok || !res.body) throw Error("Stream gagal");
       onStatus(true);
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();

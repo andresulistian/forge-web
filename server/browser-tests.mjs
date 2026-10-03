@@ -49,7 +49,7 @@ export function validateSteps(steps) {
   });
 }
 
-class DevTools {
+export class DevTools {
   constructor(url, onEvent) {
     this.ws = new WebSocket(url);
     this.pending = new Map();
@@ -86,7 +86,7 @@ class DevTools {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(Error("Browser tidak merespons dalam 12 detik."));
+        reject(Error(`Browser tidak merespons dalam 12 detik: ${method}`));
       }, 12000);
       this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ id, method, params }));
@@ -109,6 +109,16 @@ async function waitFor(check, message, ms = 5000) {
 
 export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
   const steps = validateSteps(rawSteps);
+  const captureRequest = options.capture;
+  const viewport =
+    captureRequest?.viewport === "mobile"
+      ? { width: 390, height: 844, name: "mobile" }
+      : { width: 1440, height: 900, name: "desktop" };
+  if (captureRequest) {
+    if (!["desktop", "mobile"].includes(captureRequest.viewport))
+      throw Error("Viewport tidak valid.");
+    validateSteps([{ action: "visit", path: captureRequest.path }]);
+  }
   const base = new URL(previewUrl);
   if (
     base.protocol !== "http:" ||
@@ -146,6 +156,8 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
       binary,
       [
         "--headless=new",
+        "--password-store=basic",
+        "--use-mock-keychain",
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-extensions",
@@ -272,7 +284,67 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
       );
       await localPage();
     };
-    await visit(base.href);
+    if (captureRequest) {
+      await devtools.send("Emulation.setDeviceMetricsOverride", {
+        width: viewport.width,
+        height: viewport.height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await devtools.send("Network.setBypassServiceWorker", { bypass: true });
+      await devtools.send("Network.setBlockedURLs", {
+        urls: ["ws://*", "wss://*", "file://*"],
+      });
+      await devtools.send("Page.setDownloadBehavior", { behavior: "deny" });
+      await devtools.send("Page.addScriptToEvaluateOnNewDocument", {
+        source: "window.open = () => null;",
+      });
+    }
+    await visit(
+      captureRequest ? new URL(captureRequest.path, base).href : base.href,
+    );
+    let capture;
+    if (captureRequest) {
+      // Bounded settling: a fresh isolated page, fonts or timeout, then two paint frames.
+      await evaluate(
+        `Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]).then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))`,
+      );
+      await evaluate(
+        `(() => { const style = document.createElement('style'); style.textContent = 'input,textarea,[contenteditable] { color: transparent !important; text-shadow:none !important; } *,*::before,*::after { animation:none !important; transition:none !important; caret-color:transparent !important; }'; document.head.append(style); return true; })()`,
+      );
+      const snapshot = await evaluate(`(() => {
+        const safeText = el => { const clone = el.cloneNode(true); clone.querySelectorAll('input,textarea,select,script,style,[contenteditable]').forEach(n => n.remove()); return (clone.textContent || '').replace(/\\s+/g, ' ').trim().slice(0,160); };
+        const selector = el => { const parts = []; let n = el; for (let i=0; n && n.nodeType===1 && i<18; i++, n=n.parentElement) { const tag=n.localName; const peers=n.parentElement ? [...n.parentElement.children].filter(x=>x.localName===tag) : [n]; parts.unshift(tag+':nth-of-type('+(peers.indexOf(n)+1)+')'); } const s=parts.join(' > '); return s.length<=1000 && document.querySelectorAll(s).length===1 && document.querySelector(s)===el ? s : null; };
+        const elements=[]; let unnamedControls=0;
+        for (const el of [...document.querySelectorAll('body *')].slice(0,10000)) {
+          if (el.closest('input,textarea,select,script,style,[contenteditable]')) continue;
+          const rect=el.getBoundingClientRect(); const css=getComputedStyle(el);
+          if (rect.width<=0 || rect.height<=0 || rect.bottom<=0 || rect.right<=0 || rect.top>=innerHeight || rect.left>=innerWidth || css.visibility!=='visible' || css.display==='none') continue;
+          const text=safeText(el); const role=(el.getAttribute('role')||'').slice(0,60); const label=(el.getAttribute('aria-label')||el.getAttribute('alt')||'').slice(0,160);
+          if ((el.matches('button,a[href]') || ['button','link'].includes(role)) && !text && !label && !el.getAttribute('aria-labelledby')) unnamedControls++;
+          if (elements.length>=500) continue;
+          const s=selector(el); if (!s) continue;
+          elements.push({ tag:el.localName, selector:s, text, accessible:{role,label}, box:{x:rect.x,y:rect.y,width:rect.width,height:rect.height}, source:null });
+        }
+        return {elements, measurements:{horizontalOverflow:Math.max(0,document.documentElement.scrollWidth-innerWidth), unnamedControls}, scroll:{x:scrollX,y:scrollY}, location:location.pathname+location.search, capturedAt:new Date().toISOString()};
+      })()`);
+      await localPage();
+      const screenshot = await devtools.send("Page.captureScreenshot", {
+        format: "png",
+        captureBeyondViewport: false,
+        fromSurface: true,
+      });
+      if (screenshot.data.length > 16_000_000)
+        throw Error("Screenshot terlalu besar.");
+      capture = {
+        ...snapshot,
+        png: screenshot.data,
+        viewport,
+        findings: [...findings],
+        settling: "bounded-fonts-and-two-frames",
+        reviewStatus: "not-reviewed",
+      };
+    }
     const title = await evaluate("document.title || ''");
     const visible = await evaluate(
       "document.body?.innerText?.trim().slice(0, 10000) || ''",
@@ -338,6 +410,7 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
       }
     }
     return {
+      ...(capture ? { capture } : {}),
       ok: checks.every((check) => check.ok) && findings.length === 0,
       checks,
       findings,
@@ -345,7 +418,16 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
     };
   } finally {
     devtools?.close();
-    if (child && child.exitCode === null) child.kill("SIGTERM");
+    if (child?.pid && child.exitCode === null && child.signalCode === null) {
+      await new Promise((resolve) => {
+        const timer = setTimeout(() => child.kill("SIGKILL"), 1500);
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        child.kill("SIGTERM");
+      });
+    }
     await fs.rm(profile, {
       recursive: true,
       force: true,
