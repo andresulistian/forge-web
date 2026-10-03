@@ -14,6 +14,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { api, type Project } from "./api";
+import DesignIdentity from "./DesignIdentity";
 
 type Memory = {
   structure: string[];
@@ -269,6 +270,8 @@ export default function AgentCenter({
           </div>
         )}
       </section>
+
+      <DesignIdentity key={project.id} projectId={project.id} disabled={busy || active} />
 
       <section className="agent-card memory-card">
         <header>

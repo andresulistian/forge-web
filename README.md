@@ -39,6 +39,68 @@ Forge adalah AI app builder personal yang berjalan di browser, dengan **local co
 - Pencarian web bersama untuk Ask, Plan, Build, dan Forge Guide, dengan tautan sumber di riwayat chat.
 - Backup otomatis saat Forge dibuka dan pemulihan satu klik di Settings → Backup & pemulihan.
 
+## Design Kit dan identitas desain proyek
+
+Di tab **Agent**, gunakan **Reusable skills** untuk menambahkan command ke composer, lengkapi permintaan lalu kirim. Hanya command slash **pertama** yang dipilih; panduan lain tidak ikut dimuat. Skill lama dan custom tetap tersedia. Custom lama yang memakai nama command desain tetap diprioritaskan dan bisa diedit/dihapus; setelah dihapus, skill bawaan kembali muncul.
+
+| Command | Kapan digunakan | Contoh |
+| --- | --- | --- |
+| `/design` | Arah visual atau alur halaman baru | `/design rancang checkout sesuai audiens proyek` |
+| `/design-system` | Token dan komponen lintas halaman | `/design-system satukan warna action dan state tombol` |
+| `/polish` | Finishing kecil tanpa redesign | `/polish rapikan jarak dan feedback form profil` |
+| `/design-review` | Review berbasis bukti, bukan izin mengedit | `/design-review audit hierarki dan keyboard halaman utama` |
+| `/responsive` | Reflow, overflow, dan konten panjang | `/responsive perbaiki tabel di layar sempit` |
+
+Setiap panduan memuat pemilihan, workflow, contoh praktis, anti-pattern, checklist, dan aturan verifikasi jujur. Tidak ada gaya visual tunggal yang dipaksakan. **Ini bukan visual QA otomatis:** tanpa browser/screenshot agent wajib menyatakan batas verifikasi. Phase two tidak termasuk fitur ini.
+
+### Mengisi identitas tanpa mengedit kode
+
+Buka **Agent → Identitas desain → Atur identitas & token desain**. Isi arah visual, audiens, produk, keputusan, dan batasan. Di **Token desain**, tambah baris nama/nilai untuk warna, tipografi, spacing, radius, atau shadow. Kelompok boleh kosong; Forge tidak menciptakan palette atau font tanpa pilihan pengguna. Klik **Simpan identitas** dan tunggu konfirmasi hasil baca ulang. Simpan sebelum pindah proyek: draft belum tersimpan tidak ikut pindah. Respons terlambat dari proyek lama tidak mengubah form proyek baru. Kegagalan save mempertahankan draft; **Muat ulang** meminta konfirmasi sebelum membuangnya.
+
+Identitas yang tersimpan otomatis ikut request **Ask / Plan / Build** berikutnya di jalur coding agent Codex, Gemini, Ollama, dan API provider yang ada, termasuk Build multi-agent yang didukung provider. Identitas diperlakukan sebagai konteks proyek, bukan instruksi sistem. Forge Guide memiliki jalur percakapan terpisah dan tidak diubah oleh fitur ini.
+
+**Referensi:** maksimal 20 URL `http/https` tanpa kredensial atau `attachment:<id>` lampiran yang sudah ada di proyek ini (ID tersedia pada metadata lampiran pesan). Penyimpanan referensi tidak mengambil URL, mengunggah file, men-stage aset, atau mengirim gambar ke model. Lampiran yang ingin dianalisis tetap harus dipilih secara eksplisit di composer. Referensi attachment tidak membawa berkasnya ketika DESIGN.md dipindahkan ke proyek lain.
+
+### File portabel, konflik, dan pemulihan
+
+- **`DESIGN.md`** di root proyek adalah sumber kebenaran: dokumen format Forge dengan blok JSON identitas yang dapat dibaca manusia. **`design.tokens.json`** adalah export turunan dari `identity.tokens`, bukan sumber kedua. Tidak ada salinan tersembunyi di setting global atau database.
+- Setiap save membuat checkpoint terlebih dahulu, memvalidasi revision kedua file, men-stage file sementara, lalu mengganti export dan dokumen canonical. Respons sukses diberikan sesudah hasil dibaca ulang. Rename per file bersifat atomik, tetapi dua file bukan transaksi filesystem tunggal: crash di antaranya terdeteksi sebagai konflik export dan dapat dipulihkan dari checkpoint.
+- DESIGN.md milik pengguna **tidak ditimpa otomatis**. Form menampilkan dokumen dan checkbox **Impor dokumen lama**. Dengan konfirmasi, isinya dipertahankan verbatim dalam `importedNotes` dan checkpoint; save berikutnya tidak menghapus catatan impor. Dokumen lama di atas batas impor 16.000 karakter harus ditangani manual, tidak dipotong diam-diam.
+- File token yang belum dimiliki Forge atau berbeda dari token canonical **memblokir save**. Pindahkan/rename file tersebut sendiri, atau pulihkan nilainya sesuai DESIGN.md, kemudian muat ulang. Tidak ada tombol overwrite paksa. Perubahan JSON canonical secara manual juga dapat memerlukan regenerasi export dengan cara ini. Isi tambahan di luar struktur dokumen Forge ditolak, bukan dibuang diam-diam.
+- File hanya boleh berupa file biasa di project root canonical; symlink, hardlink, root berubah, file biner UTF-8 tidak valid, dan file lebih dari 64 KB ditolak. Revision melindungi perubahan eksternal yang terdeteksi; jangan menjalankan editor filesystem lain bersamaan saat save. Checkpoint mengikuti aturan ignore workspace yang sudah ada, jadi jangan ignore kedua file ini jika ingin dipulihkan melalui checkpoint.
+- Input identity maksimal 48 KB, tiap field teks maksimal 2.000 karakter, catatan impor 16.000, URL 1.000, dan 40 token per kelompok. Warna menerima hex RGB/RGBA; font berupa nama/fallback string; spacing/radius angka nonnegatif sampai 10.000 dengan unit px/rem/em; shadow berupa teks CSS maksimal 200 karakter. Nama token dimulai huruf, lalu huruf/angka/tanda hubung, maksimal 40 karakter.
+- Token memakai `$type`/`$value`: `color`, `fontFamily`, `dimension` (objek `{value, unit}`), serta `string` untuk shadow. **Ini format subset Forge, bukan klaim kepatuhan penuh DTCG.** Token disimpan sebagai data; Forge tidak mengeksekusi atau langsung memasukkan nilainya sebagai CSS.
+
+### API lokal
+
+Semua route memakai autentikasi Bearer dan pemeriksaan Host/Origin companion yang sudah ada:
+
+- `GET /api/design-identity?projectId=<id>` → `{identity, revision, exists, needsImport, existingDocument, exportConflict}`.
+- `POST /api/design-identity/save` → `{projectId, identity, expected: revision, importExisting?: true}`; mengembalikan snapshot terbaru setelah save. `expected` wajib berasal dari GET terakhir. Identitas malformed, konflik, proyek tak dikenal, atau agent sedang aktif mengembalikan error 400; tanpa autentikasi 401.
+- `GET /api/agent-center?projectId=<id>` tetap mengembalikan katalog skills tanpa isi prompt. Tidak ada route `/api/agent-context`; assembly konteks dilakukan internal sebelum provider routing.
+
+Contoh identity (field yang belum diperlukan boleh berupa string/kelompok kosong):
+
+```json
+{
+  "direction": "Editorial hangat, pertahankan identitas lama",
+  "audience": "Pembaca artikel panjang",
+  "product": "Majalah daring",
+  "constraints": "Jangan mengganti logo atau mengunduh font",
+  "decisions": "Navigasi berbasis teks",
+  "references": [],
+  "tokens": {
+    "colors": { "accent": { "$type": "color", "$value": "#235A48" } },
+    "typography": { "body": { "$type": "fontFamily", "$value": "Georgia, serif" } },
+    "spacing": { "section": { "$type": "dimension", "$value": { "value": 24, "unit": "px" } } },
+    "radius": {},
+    "shadows": {}
+  }
+}
+```
+
+Jalankan test fitur dengan `node --experimental-strip-types --test tests/design-*.test.mjs`, lalu `npm run check`. Seluruh fixture memakai temporary directory; untuk pengembangan terisolasi tetapkan `TMPDIR` di bawah scratch dan jangan memakai data/proyek live.
+
 ## Backup dan pemulihan
 
 Buka **Settings → Backup & pemulihan Forge** untuk **Buat backup sekarang** atau **Pulihkan** dari tanggal tertentu. Forge juga mencoba membuat backup otomatis saat dibuka, maksimal sekali sehari ketika ada proyek. Snapshot berada di luar folder instalasi: `~/Library/Application Support/Forge Web/backups/` pada macOS atau `~/.local/share/forge-web/backups/` pada Linux. Lokasinya dapat diubah dengan `FORGE_BACKUP_DIR`, asalkan bukan di dalam folder data atau proyek Forge. Jangan hapus folder backup saat mengganti source Forge.

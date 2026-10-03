@@ -7,7 +7,7 @@ import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { Workspace } from "./workspace.mjs";
 import { Agents } from "./agents.mjs";
-import { Attachments, attachmentPrompt } from "./attachments.mjs";
+import { Attachments } from "./attachments.mjs";
 import { DeployManager } from "./deploy.mjs";
 import { GitHubManager } from "./github.mjs";
 import { McpManager } from "./mcp.mjs";
@@ -19,6 +19,8 @@ import { Monitoring } from "./monitoring.mjs";
 import { BackendGuide } from "./backend-guide.mjs";
 import { Skills } from "./skills.mjs";
 import { ProjectMemory } from "./project-memory.mjs";
+import { DesignIdentity } from "./design-identity.mjs";
+import { prepareAgentContext } from "./agent-context.mjs";
 import { ActivityCenter } from "./activity.mjs";
 import { KanbanManager, MODES as MODES_KANBAN } from "./kanban.mjs";
 import { sanitizeEnv } from "./env.mjs";
@@ -144,6 +146,7 @@ const web = new WebResearch();
 const backups = new BackupManager(ws);
 const skills = new Skills(ws.store);
 const projectMemory = new ProjectMemory(ws.store);
+const designIdentity = new DesignIdentity(ws);
 activity = new ActivityCenter(ws.store, ws);
 function stopPreview() {
   const child = preview?.child;
@@ -310,6 +313,8 @@ const server = http.createServer(async (req, res) => {
         : Object.fromEntries(url.searchParams);
     const p = b.projectId ? ws.get(b.projectId) : null;
     if (req.method === "GET") {
+      if (url.pathname === "/api/design-identity")
+        return json(res, await designIdentity.get(p));
       if (url.pathname === "/api/files") return json(res, await ws.files(p));
       if (url.pathname === "/api/file")
         return json(res, { text: await ws.read(p, b.file) });
@@ -699,6 +704,10 @@ const server = http.createServer(async (req, res) => {
         case "/api/memory/refresh":
           if (codex.active) throw Error("Tunggu agent selesai sebelum memindai ulang proyek.");
           return json(res, await projectMemory.refresh(p));
+        case "/api/design-identity/save":
+          if (codex.active)
+            throw Error("Tunggu agent selesai sebelum menyimpan identitas desain.");
+          return json(res, await designIdentity.save(p, b));
         case "/api/memory/save":
           return json(res, projectMemory.save(p.id, b.memory || {}));
         case "/api/skills/save":
@@ -781,8 +790,15 @@ const server = http.createServer(async (req, res) => {
                 MODES_KANBAN.includes(b.orchestrationMode) ? b.orchestrationMode : "balanced",
               );
           }
-          const resolvedSkill = skills.resolve(p.id, b.text);
-          const memory = await projectMemory.refresh(p);
+          const preparedContext = await prepareAgentContext({
+            project: p,
+            text: b.text,
+            media,
+            skills,
+            projectMemory,
+            designIdentity,
+          });
+          const { resolvedSkill } = preparedContext;
           let checkpointId = null;
           if (b.mode === "build") {
             const checkpointHistory = await ws.checkpoint(p, "Otomatis sebelum Build");
@@ -790,11 +806,7 @@ const server = http.createServer(async (req, res) => {
             emit("checkpoint", { projectId: p.id });
             await attachments.stage(p, media);
           }
-          let enrichedText =
-            resolvedSkill.text +
-            (media.length ? "\n\n" + attachmentPrompt(media) : "") +
-            resolvedSkill.instructions +
-            projectMemory.prompt(memory);
+          let enrichedText = preparedContext.text;
           await ws.chat(p, {
             role: "user",
             text: b.text,

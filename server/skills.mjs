@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { DESIGN_SKILLS } from "./design-skills.mjs";
 
 export const BUILTIN_SKILLS = [
+  ...DESIGN_SKILLS,
   {
     id: "debug",
     command: "/debug",
@@ -51,9 +53,12 @@ export class Skills {
   }
 
   list(projectId) {
+    const custom = this.store.setting("skills", projectId) || [];
     return [
-      ...BUILTIN_SKILLS.map((item) => ({ ...item, builtin: true })),
-      ...(this.store.setting("skills", projectId) || []),
+      ...BUILTIN_SKILLS.filter(
+        (item) => !custom.some((saved) => saved.command === item.command),
+      ).map((item) => ({ ...item, builtin: true })),
+      ...custom,
     ];
   }
 
@@ -64,7 +69,12 @@ export class Skills {
     const prompt = clean(input.prompt, 6000);
     if (!name || !/^\/[a-z0-9][a-z0-9-]{1,38}$/.test(command) || !prompt)
       throw Error("Skill memerlukan nama, command /huruf-kecil, dan instruksi.");
-    if (BUILTIN_SKILLS.some((item) => item.command === command))
+    if (
+      BUILTIN_SKILLS.some((item) => item.command === command) &&
+      !(this.store.setting("skills", projectId) || []).some(
+        (item) => item.id === input.id && item.command === command,
+      )
+    )
       throw Error("Command tersebut merupakan skill bawaan Forge.");
     const current = this.store.setting("skills", projectId) || [];
     const previous = current.find(

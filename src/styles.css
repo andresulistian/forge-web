@@ -1272,6 +1272,133 @@ time {
 .memory-card > .primary {
   margin-top: 9px;
 }
+.design-card {
+  grid-column: 1 / -1;
+}
+.design-card summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-weight: 600;
+}
+.design-card p {
+  line-height: 1.5;
+}
+.design-card .muted {
+  font-size: 12px;
+}
+.design-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.design-fields legend {
+  font-size: 12px;
+  margin: 10px 0;
+}
+.design-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  margin: 10px 0;
+}
+.design-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+  gap: 0 14px;
+}
+.design-card input:not([type="checkbox"]),
+.design-card textarea,
+.design-card select {
+  width: 100%;
+  min-width: 0;
+  background: #0b0b0b;
+  color: #d5d9d2;
+  border: 1px solid #42483e;
+  border-radius: 6px;
+  padding: 8px;
+  font: inherit;
+}
+.design-card textarea {
+  resize: vertical;
+}
+.design-card :is(input, textarea, select, button, summary):focus-visible {
+  outline: 2px solid #adc78d;
+  outline-offset: 3px;
+}
+.design-token-group {
+  border-top: 1px solid #42483e;
+  padding: 10px 0;
+}
+.design-token-group h4 {
+  margin: 4px 0;
+}
+.design-token-group > p {
+  margin: 4px 0 10px;
+}
+.design-token-row {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.design-token-row > input {
+  flex: 1 1 90px;
+}
+.design-token-row > select {
+  flex: 0 0 64px;
+}
+.design-token-row > button {
+  flex-shrink: 0;
+}
+.design-card button {
+  min-height: 32px;
+}
+.design-status {
+  font-size: 12px;
+  margin: 10px 0;
+}
+.design-error {
+  color: #ffb5ac;
+  overflow-wrap: anywhere;
+}
+.design-imported {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 12px;
+}
+.design-import-choice {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 12px 0;
+}
+.design-import-choice input {
+  flex-shrink: 0;
+}
+:root[data-theme="light"]
+  .design-card
+  :is(input:not([type="checkbox"]), textarea, select) {
+  background: #fff;
+  color: #28322a;
+  border-color: #a0ad9b;
+}
+:root[data-theme="light"] .design-error {
+  color: #a32720;
+}
+@media (max-width: 540px) {
+  .design-token-row {
+    flex-wrap: wrap;
+  }
+  .design-card .agent-actions {
+    flex-wrap: wrap;
+  }
+}
+
 .structured-activity {
   max-height: 260px;
   overflow: auto;
