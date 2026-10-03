@@ -267,13 +267,19 @@ export class VisualWorkflow {
     }
   }
   async manualBaseline(project, id) {
-    const c = this.get(project, id);
-    if (c.kind !== "baseline" || c.runId)
-      throw Error("Baseline sudah dipakai atau tidak valid.");
-    await this.fresh(project, c);
-    if ((await this.ws.history(project))[0]?.id !== c.checkpointId)
-      throw Error("Checkpoint berubah; ambil baseline baru.");
-    return c;
+    try {
+      const c = this.get(project, id);
+      if (c.kind !== "baseline" || c.runId)
+        throw Error("Baseline sudah dipakai atau tidak valid.");
+      await this.fresh(project, c);
+      if ((await this.ws.history(project))[0]?.id !== c.checkpointId)
+        throw Error("Checkpoint berubah; ambil baseline baru.");
+      return c;
+    } catch (error) {
+      throw Error(
+        `${error.message} Buka Review visual → Lepas baseline untuk Build dengan checkpoint baru, atau ambil dan pilih baseline baru.`,
+      );
+    }
   }
   bind(project, id, run) {
     const state = this.state(project);

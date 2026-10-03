@@ -174,6 +174,7 @@ export default function App() {
   const current = useRef<Project | null>(null);
   const draftController = useRef<DraftController | null>(null);
   const [draftReady, setDraftReady] = useState<string | null>(null);
+  const [draftLoadFailed, setDraftLoadFailed] = useState(false);
   const [draftStatus, setDraftStatus] = useState("Memulihkan draft…");
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [visualState, setVisualState] = useState<VisualState | null>(null);
@@ -323,7 +324,15 @@ export default function App() {
     resetProjectState(p);
     const controller = new DraftController(p.id, api);
     draftController.current = controller;
-    await controller.load();
+    setDraftLoadFailed(false);
+    try { await controller.load(); }
+    catch (error) {
+      if (draftController.current === controller) {
+        setDraftLoadFailed(true);
+        setDraftStatus(`Draft gagal dimuat: ${(error as Error).message}`);
+      }
+      return false;
+    }
     if (current.current?.id !== p.id || draftController.current !== controller) return false;
     if (controller.conflict && !window.confirm("Ada draft lokal belum terkirim yang berbeda dari server. Pulihkan draft lokal? Batal memakai versi server. Tidak ada Build yang dikirim.")) controller.discardLocal();
     const draft = controller.draft;
@@ -536,7 +545,7 @@ export default function App() {
 
   const send = () =>
     run(async () => {
-      if (!selected || (!text.trim() && !attachments.length)) return;
+      if (!selected || draftReady !== selected.id || (!text.trim() && !attachments.length)) return;
       const value =
         text.trim() || "Analisis lampiran ini dan jelaskan temuan Anda.";
       setText("");
@@ -1262,7 +1271,7 @@ export default function App() {
                       ? "Apa yang ingin Anda buat hari ini?"
                       : "Pilih atau buat proyek untuk mulai…"
                   }
-                  disabled={!selected}
+                  disabled={!selected || draftReady !== selected.id}
                   onKeyDown={(e) => {
                     if (
                       e.key === "Enter" &&
@@ -1354,6 +1363,7 @@ export default function App() {
               </div>
               <div className="composer-caption">
                 {hints[mode]} · {draftStatus}
+                {draftLoadFailed && selected && <button onClick={() => void run(async () => { await select(selected); })}>Coba pulihkan draft lagi</button>}
                 <span>↵ Kirim</span>
               </div>
             </div>

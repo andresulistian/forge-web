@@ -170,6 +170,9 @@ activity = new ActivityCenter(ws.store, ws);
 const visual = new VisualWorkflow(data, ws, activity, () => preview);
 const recovery = new SessionRecovery(ws.store);
 for (const project of ws.projects) {
+  for (const capture of visual.state(project).captures) {
+    if (capture.aiReview === "requested") visual.mark(project, capture.id, { aiReview: "interrupted", aiReviewError: "Server restart. Review tidak dikirim ulang; konfirmasi pengiriman baru untuk mencoba lagi." });
+  }
   if (activity.current(project.id)?.status === "running") activity.update(project.id, { status: "interrupted", finishedAt: Date.now(), error: "Server restart. Run tidak dilanjutkan otomatis; pilih Retry setelah konfirmasi." });
 }
 function stopPreview() {
@@ -999,6 +1002,10 @@ const server = http.createServer(async (req, res) => {
           return json(res, { ok: true });
         }
         case "/api/visual/baseline": {
+          if (b.captureId === null) {
+            visual.save(p, { ...visual.state(p), pendingBaselineId: null });
+            return json(res, { ok: true });
+          }
           const capture = await visual.manualBaseline(p, b.captureId);
           visual.save(p, { ...visual.state(p), pendingBaselineId: capture.id });
           return json(res, { ok: true });

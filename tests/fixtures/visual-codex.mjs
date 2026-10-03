@@ -35,7 +35,15 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       JSON.stringify(m.params.input),
     );
     send({ id: m.id, result });
-    if (m.params.input[0].text.includes("HOLD_FOR_RESTART")) return;
+    if (
+      m.params.input[0].text.includes("HOLD_FOR_RESTART") ||
+      (m.params.input.some((i) => i.type === "image") &&
+        (await fs.access(path.join(process.env.HOME, "hold-image-review")).then(
+          () => true,
+          () => false,
+        )))
+    )
+      return;
     setTimeout(async () => {
       if (m.params.sandboxPolicy.type === "workspaceWrite")
         await fs.writeFile(

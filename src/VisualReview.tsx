@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, apiImage, type Project } from "./api";
 import {
   composeTarget,
@@ -108,6 +108,13 @@ export default function VisualReview({
   const [path, setPath] = useState(state.path);
   const [viewport, setViewport] = useState(state.viewport);
   const [instruction, setInstruction] = useState("");
+  const targetRequest = useRef(0);
+  useEffect(
+    () => () => {
+      targetRequest.current++;
+    },
+    [],
+  );
   const selected =
     state.captures.find((c) => c.id === selectedId) || state.captures[0];
   const before = state.captures.find(
@@ -148,6 +155,7 @@ export default function VisualReview({
         checkpointId: state.run?.checkpointId,
       });
       setSelectedId(value.id);
+      targetRequest.current++;
       onTarget(null);
       setNotice(
         kind === "baseline"
@@ -156,19 +164,23 @@ export default function VisualReview({
       );
       await onProjectChanged();
     });
-  const selectTarget = (index: number) =>
-    void act(async () => {
+  const selectTarget = (index: number) => {
+    const request = ++targetRequest.current;
+    onTarget(null);
+    return void act(async () => {
       if (!selected) return;
       const value = await api<EditTarget>("visual/target", {
         projectId: project.id,
         captureId: selected.id,
         index,
       });
+      if (request !== targetRequest.current) return;
       onTarget(value);
       setNotice(
         "Target snapshot dipilih. Tulis perubahan; belum ada instruksi dikirim ke agent.",
       );
     });
+  };
   const point = (x: number, y: number) => {
     if (!selected) return;
     const candidates = selected.elements
@@ -287,6 +299,30 @@ export default function VisualReview({
         Capture otomatis sebelum/sesudah Build (preview harus berjalan)
       </label>
       <p className="visual-help">
+        {state.pendingBaselineId && (
+          <button
+            disabled={busy || active}
+            onClick={() =>
+              void act(async () => {
+                if (
+                  !window.confirm(
+                    "Lepas baseline terpilih? Build berikutnya membuat checkpoint baru tanpa memakai baseline lama.",
+                  )
+                )
+                  return;
+                await api("visual/baseline", {
+                  projectId: project.id,
+                  captureId: null,
+                });
+                setNotice(
+                  "Baseline dilepas. Build berikutnya memakai checkpoint baru; kirim Build sendiri.",
+                );
+              })
+            }
+          >
+            Lepas baseline untuk Build dengan checkpoint baru
+          </button>
+        )}
         Browser terisolasi, tanpa login dan jaringan luar. Font/aset eksternal
         diblokir; hasil dapat berbeda dari iframe live. Input disamarkan.
         Maksimal 24 capture / 120 MB per proyek. Data dinamis bisa berubah;
@@ -355,6 +391,7 @@ export default function VisualReview({
               aria-label="Capture tersimpan"
               value={selected.id}
               onChange={(e) => {
+                targetRequest.current++;
                 setSelectedId(e.target.value);
                 onTarget(null);
               }}
@@ -482,11 +519,13 @@ export default function VisualReview({
                   disabled={busy || !instruction.trim()}
                   onClick={() =>
                     void act(async () => {
+                      const request = ++targetRequest.current;
                       const fresh = await api<EditTarget>("visual/target", {
                         projectId: project.id,
                         captureId: target.captureId,
                         index: target.index,
                       });
+                      if (request !== targetRequest.current) return;
                       onCompose(composeTarget(fresh, instruction));
                       setNotice(
                         "Konteks dan instruksi masuk composer. Periksa lalu kirim sendiri; belum ada edit otomatis.",
@@ -496,7 +535,14 @@ export default function VisualReview({
                 >
                   Masukkan konteks ke composer
                 </button>
-                <button onClick={() => onTarget(null)}>Lepas target</button>
+                <button
+                  onClick={() => {
+                    targetRequest.current++;
+                    onTarget(null);
+                  }}
+                >
+                  Lepas target
+                </button>
               </div>
             )}
           </details>

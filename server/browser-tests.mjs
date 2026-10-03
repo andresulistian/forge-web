@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { sanitizeEnv } from "./env.mjs";
+import { previewProxy } from "./preview-proxy.mjs";
 
 const choices =
   process.platform === "darwin"
@@ -145,6 +146,13 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "forge-browser-"));
   let child;
   let devtools;
+  let proxy;
+  const networkIsolation = {
+    policy: "exact-preview-origin-proxy",
+    blockedRequests: 0,
+    scope:
+      "browser-wide; includes browser background traffic, not necessarily page errors",
+  };
   const findings = [];
   const finding = (message) => {
     if (findings.length < 20) findings.push(message);
@@ -152,6 +160,9 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
   const checks = [];
   let mainFrame = null;
   try {
+    proxy = await previewProxy(base.origin, () => {
+      networkIsolation.blockedRequests++;
+    });
     child = spawn(
       binary,
       [
@@ -165,8 +176,10 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
         "--disable-sync",
         "--disable-features=Translate",
         "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
-        "--proxy-server=http://127.0.0.1:9",
-        "--proxy-bypass-list=127.0.0.1",
+        `--proxy-server=${proxy.url}`,
+        "--proxy-bypass-list=<-loopback>",
+        "--disable-quic",
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
         "--remote-debugging-port=0",
         `--user-data-dir=${profile}`,
         "about:blank",
@@ -309,15 +322,51 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
       await evaluate(
         `Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]).then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))`,
       );
-      await evaluate(
-        `(() => { const style = document.createElement('style'); style.textContent = 'input,textarea,[contenteditable] { color: transparent !important; text-shadow:none !important; } *,*::before,*::after { animation:none !important; transition:none !important; caret-color:transparent !important; }'; document.head.append(style); return true; })()`,
-      );
+      // CDP pierces closed as well as open roots; mask the entire host, not
+      // merely text in light DOM. Frames/plugins are conservatively hidden.
+      await devtools.send("Emulation.setScriptExecutionDisabled", {
+        value: true,
+      });
+      await devtools.send("DOM.enable");
+      const { root } = await devtools.send("DOM.getDocument", {
+        depth: -1,
+        pierce: true,
+      });
+      const markHosts = async (node) => {
+        if (node.shadowRoots?.length) {
+          await devtools.send("DOM.setAttributeValue", {
+            nodeId: node.nodeId,
+            name: "data-forge-private",
+            value: "",
+          });
+        }
+        for (const child of node.children || []) await markHosts(child);
+        for (const shadow of node.shadowRoots || []) await markHosts(shadow);
+      };
+      await markHosts(root);
+      const masking = await evaluate(`(() => {
+        const privateSelector='input,textarea,select,[contenteditable],iframe,frame,object,embed,[data-forge-private]';
+        const regions=[...document.querySelectorAll(privateSelector)];
+        const style=document.createElement('style');
+        style.textContent='*,*::before,*::after { animation:none !important; transition:none !important; caret-color:transparent !important; }';
+        document.head.append(style);
+        for(const el of regions) {
+          const rect=el.getBoundingClientRect();
+          el.setAttribute('data-forge-private','');
+          el.style.setProperty('opacity','0','important');
+          for(const node of [el,...el.querySelectorAll('*')]) node.style.setProperty('visibility','hidden','important');
+          const mask=document.createElement('div'); mask.setAttribute('data-forge-private','');
+          mask.style.cssText='all:initial!important;position:fixed!important;background:#222!important;opacity:1!important;z-index:2147483647!important;pointer-events:none!important;left:'+rect.x+'px!important;top:'+rect.y+'px!important;width:'+rect.width+'px!important;height:'+rect.height+'px!important;';
+          document.documentElement.append(mask);
+        }
+        return {regions:regions.length, policy:'opaque editable regions, entire shadow hosts and frames; ordinary page text is not secret-scanned'};
+      })()`);
       const snapshot = await evaluate(`(() => {
-        const safeText = el => { const clone = el.cloneNode(true); clone.querySelectorAll('input,textarea,select,script,style,[contenteditable]').forEach(n => n.remove()); return (clone.textContent || '').replace(/\\s+/g, ' ').trim().slice(0,160); };
+        const safeText = el => { const clone = el.cloneNode(true); clone.querySelectorAll('input,textarea,select,script,style,[contenteditable],iframe,frame,object,embed,[data-forge-private]').forEach(n => n.remove()); return (clone.textContent || '').replace(/\\s+/g, ' ').trim().slice(0,160); };
         const selector = el => { const parts = []; let n = el; for (let i=0; n && n.nodeType===1 && i<18; i++, n=n.parentElement) { const tag=n.localName; const peers=n.parentElement ? [...n.parentElement.children].filter(x=>x.localName===tag) : [n]; parts.unshift(tag+':nth-of-type('+(peers.indexOf(n)+1)+')'); } const s=parts.join(' > '); return s.length<=1000 && document.querySelectorAll(s).length===1 && document.querySelector(s)===el ? s : null; };
         const elements=[]; let unnamedControls=0;
         for (const el of [...document.querySelectorAll('body *')].slice(0,10000)) {
-          if (el.closest('input,textarea,select,script,style,[contenteditable]')) continue;
+          if (el.closest('input,textarea,select,script,style,[contenteditable],iframe,frame,object,embed,[data-forge-private]')) continue;
           const rect=el.getBoundingClientRect(); const css=getComputedStyle(el);
           if (rect.width<=0 || rect.height<=0 || rect.bottom<=0 || rect.right<=0 || rect.top>=innerHeight || rect.left>=innerWidth || css.visibility!=='visible' || css.display==='none') continue;
           const text=safeText(el); const role=(el.getAttribute('role')||'').slice(0,60); const label=(el.getAttribute('aria-label')||el.getAttribute('alt')||'').slice(0,160);
@@ -334,10 +383,15 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
         captureBeyondViewport: false,
         fromSurface: true,
       });
+      await devtools.send("Emulation.setScriptExecutionDisabled", {
+        value: false,
+      });
       if (screenshot.data.length > 16_000_000)
         throw Error("Screenshot terlalu besar.");
       capture = {
         ...snapshot,
+        masking,
+        networkIsolation: { ...networkIsolation },
         png: screenshot.data,
         viewport,
         findings: [...findings],
@@ -411,6 +465,7 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
     }
     return {
       ...(capture ? { capture } : {}),
+      networkIsolation: { ...networkIsolation },
       ok: checks.every((check) => check.ok) && findings.length === 0,
       checks,
       findings,
@@ -428,6 +483,7 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
         child.kill("SIGTERM");
       });
     }
+    await proxy?.close();
     await fs.rm(profile, {
       recursive: true,
       force: true,

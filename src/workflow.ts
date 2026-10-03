@@ -43,6 +43,7 @@ export type EditTarget = {
   element: DOMElement;
 };
 export type VisualState = {
+  pendingBaselineId?: string | null;
   captures: Capture[];
   run: VisualRun | null;
   auto: boolean;

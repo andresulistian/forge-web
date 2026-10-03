@@ -187,6 +187,59 @@ test(
 );
 
 test(
+  "stale selected baseline can explicitly be cleared after Ask, then Build uses a fresh checkpoint",
+  { timeout: 45000 },
+  async (t) => {
+    const forge = await isolatedForge(t);
+    const p = await fixturePreview(forge);
+    const baseline = await forge.json("visual/capture", {
+      projectId: p.id,
+      kind: "baseline",
+      viewport: "mobile",
+      path: "/",
+    });
+    await forge.json("visual/baseline", {
+      projectId: p.id,
+      captureId: baseline.id,
+    });
+    const chat = {
+      projectId: p.id,
+      text: "Ask first",
+      mode: "ask",
+      provider: "codex",
+      model: "fixture-vision",
+      webMode: "off",
+    };
+    await forge.json("chat", chat);
+    for (let i = 0; i < 100; i++) {
+      if (
+        (await forge.json(`visual?projectId=${p.id}`)).run?.status ===
+        "completed"
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(
+      (await forge.request("chat", { ...chat, mode: "build" })).status,
+      400,
+    );
+    const clear = await forge.request("visual/baseline", {
+      projectId: p.id,
+      captureId: null,
+    });
+    assert.equal(clear.status, 200, await clear.clone().text());
+    assert.equal(
+      (await forge.json(`visual?projectId=${p.id}`)).pendingBaselineId,
+      null,
+    );
+    await forge.json("chat", { ...chat, mode: "build" });
+    const state = await forge.json(`visual?projectId=${p.id}`);
+    assert.notEqual(state.run.checkpointId, baseline.checkpointId);
+    assert.equal(state.captures.find((c) => c.id === baseline.id).runId, null);
+  },
+);
+
+test(
   "missing preview does not falsely fail completed Build or fabricate captures",
   { timeout: 30000 },
   async (t) => {
@@ -217,6 +270,48 @@ test(
     assert.equal(state.captures.length, 0);
     assert.match(state.lastError, /Preview/);
     assert.equal(state.run.buildStatus, "not-run");
+  },
+);
+
+test(
+  "restart reconciles held image review without replay or renewed consent",
+  { timeout: 45000 },
+  async (t) => {
+    const forge = await isolatedForge(t);
+    const p = await fixturePreview(forge);
+    const c = await forge.json("visual/capture", {
+      projectId: p.id,
+      kind: "snapshot",
+      viewport: "mobile",
+      path: "/",
+    });
+    await fs.writeFile(path.join(forge.root, "hold-image-review"), "hold");
+    const body = {
+      projectId: p.id,
+      captureId: c.id,
+      provider: "codex",
+      model: "fixture-vision",
+    };
+    await forge.json("visual/review", { ...body, confirmed: true });
+    assert.equal(
+      (await forge.json(`visual?projectId=${p.id}`)).captures[0].aiReview,
+      "requested",
+    );
+    const before = await fs.stat(
+      path.join(forge.root, "fixture-last-input.json"),
+    );
+    await forge.stop();
+    await forge.start();
+    assert.equal(
+      (await forge.json(`visual?projectId=${p.id}`)).captures[0].aiReview,
+      "interrupted",
+    );
+    assert.equal((await forge.json("state")).active, null);
+    assert.equal((await forge.request("visual/review", body)).status, 400);
+    assert.equal(
+      (await fs.stat(path.join(forge.root, "fixture-last-input.json"))).mtimeMs,
+      before.mtimeMs,
+    );
   },
 );
 
