@@ -6,6 +6,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import path from "node:path";
 import os from "node:os";
+import { fileURLToPath } from "node:url";
 
 test("compact identity form renders labeled editable fields, structured tokens and integration", async (t) => {
   const file = new URL("../src/DesignIdentity.tsx", import.meta.url);
@@ -18,7 +19,7 @@ test("compact identity form renders labeled editable fields, structured tokens a
     "identity form must be available in Agent Center",
   );
   const output = await build({
-    entryPoints: [file.pathname],
+    entryPoints: [fileURLToPath(file)],
     bundle: true,
     write: false,
     format: "esm",
