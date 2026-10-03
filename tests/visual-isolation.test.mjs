@@ -100,6 +100,62 @@ test(
   },
 );
 
+for (const mode of ["closed", "open"]) {
+  for (const content of ["input", "text", "nested"]) {
+    test(
+      `display:contents ${mode} shadow ${content} stays private in real PNG`,
+      { timeout: 30000 },
+      async (t) => {
+        let secret = "SECRET_A";
+        let publicText = "Public heading A";
+        const origin = await serve(t, (_q, r) => {
+          r.setHeader("Content-Type", "text/html");
+          const privateHTML =
+            content === "input"
+              ? `<input style="visibility:visible!important" value="${secret}">`
+              : `<span style="display:contents;visibility:visible!important"><b style="visibility:visible!important;position:fixed;top:300px">${secret}</b>${secret}</span>`;
+          r.end(`<body><h1>${publicText}</h1><div id="shadow" style="display:contents"></div><p>Public footer</p><script>
+            const root=document.querySelector('#shadow').attachShadow({mode:'${mode}'});
+            ${
+              content === "nested"
+                ? `root.innerHTML='<div style="display:contents;visibility:visible!important"></div>';root.firstChild.attachShadow({mode:'closed'}).innerHTML=${JSON.stringify(privateHTML)};`
+                : `root.innerHTML=${JSON.stringify(privateHTML)};`
+            }
+          </script></body>`);
+        });
+        const capture = async () =>
+          (
+            await runBrowserTest(origin, [], {
+              capture: { viewport: "mobile", path: "/" },
+            })
+          ).capture;
+        const a = await capture();
+        secret = "SECRET_B";
+        const b = await capture();
+        assert.ok(
+          a.png === b.png,
+          "changing only shadow secrets must not change real PNG bytes",
+        );
+        assert.ok(a.masking.regions >= 1);
+        assert.ok(!JSON.stringify(a.elements).includes("SECRET_"));
+        assert.ok(a.elements.some((el) => el.text === publicText));
+        assert.ok(a.elements.some((el) => el.text === "Public footer"));
+        assert.deepEqual(a.findings, []);
+        const png = Buffer.from(a.png, "base64");
+        assert.equal(png.readUInt32BE(16), 390);
+        assert.equal(png.readUInt32BE(20), 844);
+        publicText = "Public heading B";
+        const c = await capture();
+        assert.notEqual(
+          c.png,
+          b.png,
+          "ordinary visible text must still affect the screenshot",
+        );
+      },
+    );
+  }
+}
+
 test(
   "browser-wide isolation blocks service-worker own fetch while same-origin worker executes",
   { timeout: 30000 },

@@ -341,7 +341,27 @@ export async function runBrowserTest(previewUrl, rawSteps, options = {}) {
           });
         }
         for (const child of node.children || []) await markHosts(child);
-        for (const shadow of node.shadowRoots || []) await markHosts(shadow);
+        for (const shadow of node.shadowRoots || []) {
+          // A display:contents host has no painted box: host opacity/overlays
+          // cannot hide descendants that override inherited visibility. Pierce
+          // each root (including closed/nested roots) without changing layout.
+          const { object } = await devtools.send("DOM.resolveNode", {
+            nodeId: shadow.nodeId,
+          });
+          const result = await devtools.send("Runtime.callFunctionOn", {
+            objectId: object.objectId,
+            functionDeclaration: `function() {
+              for (const el of this.querySelectorAll('*')) {
+                if (!el.style) continue;
+                el.style.setProperty('visibility', 'hidden', 'important');
+                el.style.setProperty('opacity', '0', 'important');
+              }
+            }`,
+          });
+          if (result.exceptionDetails)
+            throw Error("Gagal menyembunyikan konten shadow Preview.");
+          await markHosts(shadow);
+        }
       };
       await markHosts(root);
       const masking = await evaluate(`(() => {
