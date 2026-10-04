@@ -1,5 +1,6 @@
 export type Draft = {
   text: string;
+  attachments?: { id: string; imageUsage?: "auto" | "asset" | "reference" }[];
   mode?: string;
   provider?: string;
   model?: string;
@@ -28,6 +29,25 @@ function safe(d: Draft): Draft {
   const target = d.target;
   return {
     text: typeof d.text === "string" ? d.text.slice(0, 40000) : "",
+    attachments: Array.isArray(d.attachments)
+      ? d.attachments
+          .slice(0, 10)
+          .filter(
+            (a) =>
+              typeof a?.id === "string" &&
+              /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(
+                a.id,
+              ),
+          )
+          .map((a) => ({
+            id: a.id,
+            imageUsage: ["auto", "asset", "reference"].includes(
+              a.imageUsage || "",
+            )
+              ? a.imageUsage
+              : "auto",
+          }))
+      : [],
     mode:
       typeof d.mode === "string" && ["ask", "plan", "build"].includes(d.mode)
         ? d.mode

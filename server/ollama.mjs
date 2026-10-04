@@ -619,6 +619,18 @@ export class Ollama {
       throw Error(
         `Model ${model} belum terpasang di Ollama. Jalankan ollama pull ${model}.`,
       );
+    if (media.some(item => item.images?.length)) {
+      let info;
+      try {
+        info = await this.request("/api/show", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) }).then(response => response.json());
+      } catch {
+        throw Error("Dukungan vision Ollama tidak terverifikasi; gambar tidak dikirim. Pilih model vision atau perbarui Ollama.");
+      }
+      const vision = Array.isArray(info.capabilities)
+        ? info.capabilities.includes("vision")
+        : Object.keys(info.projector_info || {}).length > 0 || Object.keys(info.model_info || {}).some(key => key.includes(".vision."));
+      if (!vision) throw Error("Model Ollama ini tidak mendukung vision atau dukungannya belum terverifikasi; gambar tidak dikirim. Pilih model vision lain.");
+    }
     const controller = new AbortController();
     this.active = { projectId: project.id, mode, controller, model };
     this.usedModels.add(model);

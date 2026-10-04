@@ -3,7 +3,12 @@ export type Message = {
   role: string;
   text: string;
   mode?: string;
-  attachments?: { id: string; name: string; kind: string }[];
+  attachments?: {
+    id: string;
+    name: string;
+    kind: string;
+    imageUsage?: "auto" | "asset" | "reference";
+  }[];
   provider?: string;
   model?: string;
   multiAgent?: boolean;
@@ -40,7 +45,11 @@ export async function connect() {
   connection = { url: location.origin, token };
   return connection;
 }
-export async function api<T = any>(route: string, data?: unknown): Promise<T> {
+export async function api<T = any>(
+  route: string,
+  data?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
   const res = await fetch(connection.url + "/api/" + route, {
     method: data ? "POST" : "GET",
     headers: {
@@ -49,6 +58,7 @@ export async function api<T = any>(route: string, data?: unknown): Promise<T> {
     },
     body: data ? JSON.stringify(data) : undefined,
     keepalive: route === "session",
+    signal,
   });
   const value = await res.json();
   if (!res.ok) {
@@ -61,9 +71,13 @@ export async function api<T = any>(route: string, data?: unknown): Promise<T> {
   }
   return value;
 }
-export async function apiImage(route: string): Promise<string> {
+export async function apiImage(
+  route: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const res = await fetch(connection.url + "/api/" + route, {
     headers: { Authorization: "Bearer " + connection.token },
+    signal,
   });
   if (!res.ok)
     throw Error(

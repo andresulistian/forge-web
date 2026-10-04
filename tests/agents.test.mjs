@@ -161,6 +161,7 @@ test("Ollama is selected explicitly, remembers locally, sends images, and unload
     if (url.endsWith("/api/tags"))
       return Response.json({ models: [{ model: "qwen3.5:9b-mlx" }] });
     if (url.endsWith("/api/ps")) return Response.json({ models: [] });
+    if (url.endsWith("/api/show")) return Response.json({ capabilities: ["completion", "vision"] });
     if (url.endsWith("/api/generate")) return Response.json({ done: true });
     if (url.endsWith("/api/chat"))
       return new Response(

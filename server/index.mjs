@@ -342,10 +342,22 @@ const server = http.createServer(async (req, res) => {
         : Object.fromEntries(url.searchParams);
     const p = b.projectId ? ws.get(b.projectId) : null;
     if (url.pathname === "/api/session") {
-      if (req.method === "POST") return json(res, recovery.save(p, b));
+      if (req.method === "POST") {
+        await attachments.resolve(p, b.draft?.attachments || []);
+        return json(res, recovery.save(p, b));
+      }
       if (req.method === "GET") return json(res, recovery.get(p));
     }
     if (req.method === "GET") {
+      if (url.pathname === "/api/attachments/image") {
+        try {
+          const image = await attachments.image(p, b.id);
+          res.writeHead(200, { "Content-Type": image.mimeType, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+          return res.end(image.bytes);
+        } catch (error) {
+          return json(res, { error: error.code === "ENOENT" ? "Gambar tidak tersedia untuk proyek ini." : "Pratinjau gambar tidak valid atau tidak aman." }, error.code === "ENOENT" ? 404 : 400);
+        }
+      }
       if (url.pathname === "/api/visual") return json(res, { ...visual.state(p), run: activity.current(p.id) });
       if (url.pathname === "/api/visual/image") {
         const image = await visual.image(p, b.id);
@@ -609,6 +621,8 @@ const server = http.createServer(async (req, res) => {
           emit("backup-restored", { count: result.projects.length });
           return json(res, result);
         }
+        case "/api/attachments/metadata":
+          return json(res, (await attachments.resolve(p, b.attachments || [])).map(({ id, kind, name, imageUsage, size, summary, url, duration }) => ({ id, kind, name, imageUsage, size, summary, url, duration })));
         case "/api/attachments":
           return json(res, await attachments.add(p, b.item));
         case "/api/gemini/login":
@@ -831,40 +845,12 @@ const server = http.createServer(async (req, res) => {
                 MODES_KANBAN.includes(b.orchestrationMode) ? b.orchestrationMode : "balanced",
               );
           }
-          const preparedContext = await prepareAgentContext({
-            project: p,
-            text: b.text,
-            media,
-            skills,
-            projectMemory,
-            designIdentity,
-          });
-          const { resolvedSkill } = preparedContext;
           let checkpointId = null;
           const manualBaseline = b.mode === "build" && (b.baselineId || visual.state(p).pendingBaselineId) ? await visual.manualBaseline(p, b.baselineId || visual.state(p).pendingBaselineId) : null;
           if (b.mode === "build") {
             checkpointId = manualBaseline?.checkpointId || (await ws.checkpoint(p, "Otomatis sebelum Build"))[0]?.id || null;
             emit("checkpoint", { projectId: p.id });
           }
-          let enrichedText = preparedContext.text;
-          await ws.chat(p, {
-            role: "user",
-            text: b.text,
-            mode: b.mode,
-            provider: b.provider || "codex",
-            model: b.model,
-            multiAgent: b.multiAgent === true && b.mode === "build",
-            attachments: media.map(
-              ({
-                images: _images,
-                audio: _audio,
-                text: _text,
-                source: _source,
-                entries: _entries,
-                ...meta
-              }) => meta,
-            ),
-          });
           try {
             const agentRun = activity.begin(
               p,
@@ -889,6 +875,20 @@ const server = http.createServer(async (req, res) => {
               }
               await attachments.stage(p, media);
             }
+            // Build staging supplies the paths; assemble and persist only after
+            // it succeeds. Ask/Plan never stage. Refresh project memory once.
+            const preparedContext = await prepareAgentContext({
+              project: p, text: b.text, media, skills, projectMemory, designIdentity,
+            });
+            const { resolvedSkill } = preparedContext;
+            let enrichedText = preparedContext.text;
+            await ws.chat(p, {
+              role: "user", text: b.text, mode: b.mode,
+              provider: b.provider || "codex", model: b.model,
+              multiAgent: b.multiAgent === true && b.mode === "build",
+              attachments: media.map(({ images: _images, audio: _audio,
+                text: _text, source: _source, entries: _entries, ...meta }) => meta),
+            });
             if (boardTask) {
               const started = await kanban.start(p, boardTask.id, agentRun.id, {
                 provider: b.provider || "codex",

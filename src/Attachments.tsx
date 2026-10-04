@@ -1,5 +1,5 @@
 import { extractAudio } from "./audio";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Archive,
   FileCode2,
@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "./api";
+import { AttachmentThumbnail } from "./AttachmentThumbnail";
 
 export type Attachment = {
   id: string;
@@ -22,6 +23,7 @@ export type Attachment = {
   duration?: number;
   size?: number;
   summary?: string;
+  imageUsage?: "auto" | "asset" | "reference";
 };
 
 const TEXT_EXTENSIONS = new Set([
@@ -158,19 +160,38 @@ function once(target: EventTarget, event: string, action: () => void) {
     action();
   });
 }
-function capture(source: CanvasImageSource, width: number, height: number) {
-  if (!width || !height) throw Error("Dimensi media tidak valid.");
-  const scale = Math.min(1, 1600 / Math.max(width, height));
+function capture(
+  source: CanvasImageSource,
+  width: number,
+  height: number,
+  preserveAlpha = false,
+) {
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width < 1 ||
+    height < 1 ||
+    width > 32768 ||
+    height > 32768 ||
+    width * height > 40_000_000
+  )
+    throw Error("Dimensi media terlalu besar atau tidak valid.");
+  let scale = Math.min(1, 1600 / Math.max(width, height));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw Error("Canvas tidak tersedia.");
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  return {
-    data: canvas.toDataURL("image/jpeg", 0.82).split(",")[1],
-    mimeType: "image/jpeg",
-  };
+  const mimeType = preserveAlpha ? "image/png" : "image/jpeg";
+  // PNG preserves alpha for logos/WebP/GIF. Reduce noisy rasters to the same
+  // bounded provider-frame budget, without flattening onto a JPEG background.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw Error("Canvas tidak tersedia.");
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    const data = canvas.toDataURL(mimeType, 0.82).split(",")[1];
+    if (data.length <= 2_900_000) return { data, mimeType };
+    scale *= 0.75;
+  }
+  throw Error("Gambar tidak dapat dinormalisasi dalam batas ukuran.");
 }
 
 export async function prepareMedia(file: File) {
@@ -190,7 +211,14 @@ export async function prepareMedia(file: File) {
           data: await fileBase64(file),
           mimeType: file.type || "image/png",
         },
-        images: [capture(img, img.naturalWidth, img.naturalHeight)],
+        images: [
+          capture(
+            img,
+            img.naturalWidth,
+            img.naturalHeight,
+            file.type !== "image/jpeg",
+          ),
+        ],
       };
     }
     if (file.type.startsWith("audio/")) {
@@ -323,6 +351,16 @@ export default function AttachmentPicker({
   onError: (s: string) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const alive = useRef(true);
+  const pending = useRef<AbortController | null>(null);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      pending.current?.abort();
+      onBusy(false);
+    };
+  }, [onBusy]);
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const [loading, setLoading] = useState(false),
@@ -331,6 +369,7 @@ export default function AttachmentPicker({
     [showLink, setShowLink] = useState(false),
     [url, setUrl] = useState("");
   const uploadFiles = async (files: File[]) => {
+    if (loading || disabled) return;
     if (!projectId) return onError("Pilih proyek terlebih dahulu.");
     if (itemsRef.current.length + files.length > 10)
       return onError("Maksimal 10 lampiran per pesan.");
@@ -338,29 +377,39 @@ export default function AttachmentPicker({
     onBusy(true);
     onError("");
     try {
-      let next = [...itemsRef.current];
+      const controller = new AbortController();
+      pending.current = controller;
       for (let index = 0; index < files.length; index++) {
         setProgress(
           `Membaca ${index + 1}/${files.length}: ${files[index].name}`,
         );
-        const item = await api<Attachment>("attachments", {
-          projectId,
-          item: await prepareFile(files[index]),
-        });
-        next = [...next, item];
+        const prepared = await prepareFile(files[index]);
+        if (!alive.current) return;
+        const item = await api<Attachment>(
+          "attachments",
+          { projectId, item: prepared },
+          controller.signal,
+        );
+        if (!alive.current) return;
+        const next = [...itemsRef.current, item];
         itemsRef.current = next;
         onChange(next);
       }
       setProgress(`${files.length} file siap dianalisis`);
-      window.setTimeout(() => setProgress(""), 1800);
+      window.setTimeout(() => {
+        if (alive.current) setProgress("");
+      }, 1800);
     } catch (error) {
-      onError((error as Error).message);
+      if (alive.current) onError((error as Error).message);
     } finally {
-      setLoading(false);
-      onBusy(false);
+      if (alive.current) {
+        setLoading(false);
+        onBusy(false);
+      }
     }
   };
   const uploadLink = async () => {
+    if (loading || disabled) return;
     if (!projectId || itemsRef.current.length >= 10)
       return onError("Pilih proyek dan gunakan maksimal 10 lampiran.");
     setLoading(true);
@@ -368,20 +417,31 @@ export default function AttachmentPicker({
     onError("");
     setProgress("Membaca link…");
     try {
-      const item = await api<Attachment>("attachments", {
-        projectId,
-        item: { kind: "link", url: url.trim() },
-      });
+      const controller = new AbortController();
+      pending.current = controller;
+      const item = await api<Attachment>(
+        "attachments",
+        {
+          projectId,
+          item: { kind: "link", url: url.trim() },
+        },
+        controller.signal,
+      );
+      if (!alive.current) return;
       onChange([...itemsRef.current, item]);
       setUrl("");
       setShowLink(false);
       setProgress("Link siap dianalisis");
-      window.setTimeout(() => setProgress(""), 1800);
+      window.setTimeout(() => {
+        if (alive.current) setProgress("");
+      }, 1800);
     } catch (error) {
-      onError((error as Error).message);
+      if (alive.current) onError((error as Error).message);
     } finally {
-      setLoading(false);
-      onBusy(false);
+      if (alive.current) {
+        setLoading(false);
+        onBusy(false);
+      }
     }
   };
   return (
@@ -409,10 +469,45 @@ export default function AttachmentPicker({
         {items.map((attachment) => (
           <span
             key={attachment.id}
+            className={
+              attachment.kind === "image" ? "image-attachment-card" : undefined
+            }
             title={attachment.summary || attachment.url || attachment.name}
           >
-            <AttachmentIcon kind={attachment.kind} />
+            {attachment.kind === "image" && projectId ? (
+              <AttachmentThumbnail
+                projectId={projectId}
+                id={attachment.id}
+                name={attachment.name}
+              />
+            ) : (
+              <AttachmentIcon kind={attachment.kind} />
+            )}
             <span>{attachment.name}</span>
+            {attachment.kind === "image" && (
+              <select
+                aria-label={`Penggunaan ${attachment.name}`}
+                value={attachment.imageUsage || "auto"}
+                disabled={disabled || loading}
+                onChange={(event) =>
+                  onChange(
+                    items.map((item) =>
+                      item.id === attachment.id
+                        ? {
+                            ...item,
+                            imageUsage: event.target
+                              .value as Attachment["imageUsage"],
+                          }
+                        : item,
+                    ),
+                  )
+                }
+              >
+                <option value="auto">Auto</option>
+                <option value="asset">Aset halaman</option>
+                <option value="reference">Referensi desain</option>
+              </select>
+            )}
             <button
               disabled={disabled || loading}
               aria-label={`Hapus lampiran ${attachment.name}`}

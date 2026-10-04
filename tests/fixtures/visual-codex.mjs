@@ -81,11 +81,17 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
     )
       return;
     setTimeout(async () => {
-      if (m.params.sandboxPolicy.type === "workspaceWrite")
-        await fs.writeFile(
-          path.join(cwd, "page.html"),
-          "<html><body><h1>After fixture Build</h1><button>Changed</button></body></html>",
+      if (m.params.sandboxPolicy.type === "workspaceWrite") {
+        const text = m.params.input[0].text;
+        const urls = [...text.matchAll(/browser URL is (\/\S+)/g)].map(
+          (match) => match[1].replace(/\.$/, ""),
         );
+        const imageFixture = text.includes("IMAGE_LANDING_FIXTURE");
+        const html = imageFixture
+          ? `<html><head><meta name="viewport" content="width=device-width"><style>body{margin:0;font:16px system-ui;color:#173c2c;background:#f5f8f1}main{max-width:1100px;margin:auto;padding:24px}header img{width:180px;height:90px;object-fit:contain}section img{width:100%;height:clamp(220px,40vw,440px);object-fit:cover;object-position:center;border-radius:16px}h1{font-size:clamp(28px,4vw,48px)}p{line-height:1.6}</style></head><body><main><header><img alt="Supplied transparent logo" src="${urls[0]}"></header><h1>Explicit image integration fixture</h1><p>Not production AI output. This page consumes asset URLs from the actual dispatched prompt.</p><section><img alt="Supplied JPEG fixture" src="${urls[1]}"></section></main></body></html>`
+          : "<html><body><h1>After fixture Build</h1><button>Changed</button></body></html>";
+        await fs.writeFile(path.join(cwd, "page.html"), html);
+      }
       send({
         method: "item/completed",
         params: {

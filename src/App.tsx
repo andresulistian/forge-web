@@ -1,4 +1,5 @@
 import AttachmentPicker, { type Attachment } from "./Attachments";
+import { AttachmentThumbnail } from "./AttachmentThumbnail";
 import AiPicker, { initialAi } from "./AiPicker";
 import GuideChat from "./GuideChat";
 import ContextPanel from "./ContextPanel";
@@ -94,6 +95,7 @@ const hints = {
 export default function App() {
   const [ai, setAi] = useState(initialAi);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]),
     [selected, setSelected] = useState<Project | null>(null),
     [messages, setMessages] = useState<Message[]>([]),
@@ -234,6 +236,7 @@ export default function App() {
       return;
     controller.edit({
       text,
+      attachments: attachments.map(({ id, imageUsage }) => ({ id, imageUsage: imageUsage || "auto" })),
       mode,
       ...ai,
       tab,
@@ -266,6 +269,7 @@ export default function App() {
     ai.model,
     tab,
     editTarget,
+    attachments,
   ]);
   useEffect(() => {
     const flush = () => {
@@ -422,6 +426,14 @@ export default function App() {
     );
     setAi({ provider: draft.provider || "codex", model: draft.model || "" });
     setTab(draft.tab || "preview");
+    if (draft.attachments?.length) {
+      try {
+        const saved = await api<Attachment[]>("attachments/metadata", { projectId: p.id, attachments: draft.attachments });
+        if (current.current?.id === p.id && draftController.current === controller) setAttachments(saved);
+      } catch {
+        if (current.current?.id === p.id) setDraftStatus("Lampiran lama tidak tersedia; unggah ulang gambar.");
+      }
+    }
     if (draft.target) {
       try {
         const target = await api<EditTarget>("visual/target", {
@@ -736,6 +748,7 @@ export default function App() {
       if (
         !selected ||
         draftReady !== selected.id ||
+        attachmentBusy ||
         (!text.trim() && !attachments.length)
       )
         return;
@@ -778,7 +791,7 @@ export default function App() {
             localStorage.getItem("forge-orchestration-mode") || "balanced",
           ...(mode === "build" && kanbanTaskId ? { kanbanTaskId } : {}),
           ...ai,
-          attachments: attachments.map((a) => a.id),
+          attachments: attachments.map(({ id, imageUsage }) => ({ id, imageUsage: imageUsage || "auto" })),
         });
         setAttachments([]);
         setKanbanTaskId(null);
@@ -1408,18 +1421,12 @@ export default function App() {
                       <div className="message-attachments">
                         {m.attachments.map((a) => (
                           <span key={a.id}>
-                            {a.kind === "video"
-                              ? "▣"
-                              : a.kind === "link"
-                                ? "↗"
-                                : a.kind === "archive"
-                                  ? "◇"
-                                  : a.kind === "code"
-                                    ? "⌘"
-                                    : a.kind === "document"
-                                      ? "▤"
-                                      : "▧"}{" "}
-                            {a.name}
+                            {a.kind === "image" && selected ? <>
+                              <AttachmentThumbnail key={`${selected.id}:${a.id}`} projectId={selected.id} id={a.id} name={a.name} />
+                              <span className="sent-image-label">{a.name}<small>{a.imageUsage === "asset" ? "Aset halaman" : a.imageUsage === "reference" ? "Referensi desain" : "Auto"}</small></span>
+                              <button aria-label={`Gunakan lagi ${a.name}`} disabled={busy || attachmentBusy || !!active || draftReady !== selected.id || attachments.some(item => item.id === a.id) || attachments.length >= 10}
+                                onClick={() => setAttachments(items => items.some(item => item.id === a.id) || items.length >= 10 ? items : [...items, { id: a.id, name: a.name, kind: "image", imageUsage: a.imageUsage || "auto" }])}>Gunakan lagi</button>
+                            </> : <>{a.kind === "video" ? "▣" : a.kind === "link" ? "↗" : a.kind === "archive" ? "◇" : a.kind === "code" ? "⌘" : a.kind === "document" ? "▤" : "▧"} {a.name}</>}
                           </span>
                         ))}
                       </div>
@@ -1536,11 +1543,12 @@ export default function App() {
               />
               <div className="composer">
                 <AttachmentPicker
+                  key={selected?.id}
                   projectId={selected?.id}
                   items={attachments}
                   onChange={setAttachments}
-                  disabled={busy || !!active || deploying}
-                  onBusy={setBusy}
+                  disabled={busy || !!active || deploying || draftReady !== selected?.id}
+                  onBusy={setAttachmentBusy}
                   onError={setError}
                 />
                 <textarea
@@ -1569,7 +1577,7 @@ export default function App() {
                       !e.nativeEvent.isComposing
                     ) {
                       e.preventDefault();
-                      if (!active && !busy && !deploying && stream) void send();
+                      if (!active && !busy && !attachmentBusy && !deploying && stream) void send();
                     }
                   }}
                 />
@@ -1644,6 +1652,8 @@ export default function App() {
                         !selected ||
                         (!text.trim() && !attachments.length) ||
                         busy ||
+                        attachmentBusy ||
+                        draftReady !== selected?.id ||
                         deploying ||
                         !stream
                       }
