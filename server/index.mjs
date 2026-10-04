@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { Workspace } from "./workspace.mjs";
 import { Agents } from "./agents.mjs";
 import { Attachments } from "./attachments.mjs";
+import { closeRasterDecoder } from "./raster-decoder.mjs";
 import { DeployManager } from "./deploy.mjs";
 import { GitHubManager } from "./github.mjs";
 import { McpManager } from "./mcp.mjs";
@@ -355,7 +356,7 @@ const server = http.createServer(async (req, res) => {
           res.writeHead(200, { "Content-Type": image.mimeType, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
           return res.end(image.bytes);
         } catch (error) {
-          return json(res, { error: error.code === "ENOENT" ? "Gambar tidak tersedia untuk proyek ini." : "Pratinjau gambar tidak valid atau tidak aman." }, error.code === "ENOENT" ? 404 : 400);
+          return json(res, { error: error.code === "ENOENT" ? "Gambar tidak tersedia untuk proyek ini." : "Pratinjau gambar tidak valid atau melebihi batas 1600 × 1600 piksel / 2,9 juta karakter; unggah ulang melalui Forge." }, error.code === "ENOENT" ? 404 : 400);
         }
       }
       if (url.pathname === "/api/visual") return json(res, { ...visual.state(p), run: activity.current(p.id) });
@@ -1120,6 +1121,7 @@ async function shutdown() {
       /* already stopped */
     }
   await codex.close();
+  await closeRasterDecoder();
   // Give active child processes a moment to terminate before closing the server.
   await new Promise((resolve) => setTimeout(resolve, 300));
   ws.close();

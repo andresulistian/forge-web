@@ -6,6 +6,7 @@ import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import https from "node:https";
 import { inflateRawSync, inflateSync } from "node:zlib";
+import { verifyRaster } from "./raster-decoder.mjs";
 
 const TEXT_EXTENSIONS = new Set([
   "txt",
@@ -94,6 +95,13 @@ async function publicAssetLocation(project, filename) {
       // receiving its uploaded asset.
     }
   }
+  // The mirror itself creates public/. Reuse an existing asset's layout before
+  // consulting the current framework; both URLs already have serving mirrors.
+  // stage() still preflights byte equality and no-follow paths before writes.
+  if (await exists(path.join(project.path, "assets", "forge-uploads", filename)))
+    usesPublicDirectory = false;
+  else if (await exists(path.join(project.path, "public", "forge-assets", filename)))
+    usesPublicDirectory = true;
   const parts = usesPublicDirectory
     ? ["public", "forge-assets"]
     : ["assets", "forge-uploads"];
@@ -147,7 +155,7 @@ function decodeBase64(data, maximum = 12_000_000) {
     throw Error(`File maksimal ${maximum / 1_000_000} MB.`);
   return bytes;
 }
-function verifiedImageExtension(bytes, mimeType) {
+async function verifiedImageExtension(bytes, mimeType, frame = false) {
   const signatures = {
     "image/png":
       bytes.length >= 8 &&
@@ -168,6 +176,7 @@ function verifiedImageExtension(bytes, mimeType) {
   };
   if (!signatures[mimeType])
     throw Error("Isi file tidak sesuai dengan format gambar.");
+  await verifyRaster(bytes, mimeType, frame);
   return {
     "image/png": "png",
     "image/jpeg": "jpg",
@@ -499,10 +508,12 @@ export class Attachments {
     if (item.kind !== "image" || !item.images?.[0])
       throw Error("Pratinjau gambar tidak tersedia.");
     const frame = item.images[0];
-    const bytes = decodeBase64(frame.data, 2_250_000);
+    if (typeof frame.data !== "string" || frame.data.length > 2_900_000)
+      throw Error("Pratinjau terlalu besar; unggah ulang melalui Forge.");
+    const bytes = decodeBase64(frame.data, 2_175_000);
     if (!["image/png", "image/jpeg"].includes(frame.mimeType))
       throw Error("Format pratinjau tidak aman.");
-    verifiedImageExtension(bytes, frame.mimeType);
+    await verifiedImageExtension(bytes, frame.mimeType, true);
     return { bytes, mimeType: frame.mimeType };
   }
   async add(project, item) {
@@ -564,10 +575,11 @@ export class Attachments {
         item.images.length > (item.kind === "video" ? 6 : 1)
       )
         throw Error("Jumlah frame tidak valid.");
-      saved.images = item.images.map((img) => {
+      saved.images = [];
+      for (const img of item.images) {
         if (
           typeof img.data !== "string" ||
-          img.data.length > 3_000_000 ||
+          img.data.length > 2_900_000 ||
           !/^[A-Za-z0-9+/]*={0,2}$/.test(img.data)
         )
           throw Error("Gambar terlalu besar atau format tidak valid.");
@@ -577,14 +589,15 @@ export class Attachments {
           .subarray(0, 8)
           .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
         if (!jpeg && !png) throw Error("Frame harus PNG atau JPEG.");
-        return {
+        await verifiedImageExtension(bytes, jpeg ? "image/jpeg" : "image/png", true);
+        saved.images.push({
           data: img.data,
           mimeType: jpeg ? "image/jpeg" : "image/png",
           ...(Number.isFinite(img.timestamp)
             ? { timestamp: img.timestamp }
             : {}),
-        };
-      });
+        });
+      }
       if (item.kind === "video") {
         if (!Number.isFinite(item.duration) || item.duration <= 0)
           throw Error("Durasi video tidak valid.");
@@ -594,7 +607,7 @@ export class Attachments {
         const source = decodeBase64(item.source.data);
         if (!/^image\/(png|jpeg|webp|gif)$/.test(item.source.mimeType || ""))
           throw Error("Format gambar asli tidak didukung.");
-        verifiedImageExtension(source, item.source.mimeType);
+        await verifiedImageExtension(source, item.source.mimeType);
         saved.source = {
           data: item.source.data,
           mimeType: item.source.mimeType,
@@ -706,7 +719,7 @@ export class Attachments {
       if (assetSource) {
         if (item.kind === "image") {
           const bytes = decodeBase64(assetSource.data);
-          const suffix = verifiedImageExtension(bytes, assetSource.mimeType);
+          const suffix = await verifiedImageExtension(bytes, assetSource.mimeType, !item.source);
           const stem = safeName(item.name).replace(/\.[^.]*$/, "") || "image";
           const filename = `${item.id}-${stem}.${suffix}`;
           const destination = await publicAssetLocation(project, filename);

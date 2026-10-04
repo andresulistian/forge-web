@@ -13,7 +13,7 @@ import PreviewAnnotations, {
 import AgentCenter from "./AgentCenter";
 import VisualReview from "./VisualReview";
 import { workflowStatus, type VisualState, type EditTarget } from "./workflow";
-import { DraftController } from "./session-draft";
+import { DraftController, type Draft } from "./session-draft";
 import KanbanPanel from "./KanbanPanel";
 import { playApprovalSound, unlockNotificationAudio } from "./notifications";
 import {
@@ -188,6 +188,12 @@ export default function App() {
   const draftController = useRef<DraftController | null>(null);
   const [draftReady, setDraftReady] = useState<string | null>(null);
   const [draftLoadFailed, setDraftLoadFailed] = useState(false);
+  const [attachmentRecovery, setAttachmentRecovery] = useState<{
+    selections: NonNullable<Draft["attachments"]>;
+    message: string;
+    busy: boolean;
+  } | null>(null);
+  const hydrationRevision = useRef(0);
   const [draftStatus, setDraftStatus] = useState("Memulihkan draft…");
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [visualState, setVisualState] = useState<VisualState | null>(null);
@@ -236,7 +242,8 @@ export default function App() {
       return;
     controller.edit({
       text,
-      attachments: attachments.map(({ id, imageUsage }) => ({ id, imageUsage: imageUsage || "auto" })),
+      // Failed metadata is not a removal. Persist ID/roles while text is edited.
+      attachments: attachmentRecovery?.selections || attachments.map(({ id, imageUsage }) => ({ id, imageUsage: imageUsage || "auto" })),
       mode,
       ...ai,
       tab,
@@ -270,6 +277,7 @@ export default function App() {
     tab,
     editTarget,
     attachments,
+    attachmentRecovery,
   ]);
   useEffect(() => {
     const flush = () => {
@@ -312,6 +320,8 @@ export default function App() {
     }
   };
   const resetProjectState = (nextProject?: Project | null) => {
+    hydrationRevision.current++;
+    setAttachmentRecovery(null);
     if (nextProject) {
       revision.current++;
       current.current = nextProject;
@@ -384,6 +394,24 @@ export default function App() {
     }
   };
   const dirty = source !== savedSource;
+  const hydrateAttachments = async (
+    p: Project,
+    controller: DraftController,
+    selections: NonNullable<Draft["attachments"]>,
+  ) => {
+    const requestRevision = ++hydrationRevision.current;
+    const valid = () => current.current?.id === p.id &&
+      draftController.current === controller && hydrationRevision.current === requestRevision;
+    setAttachmentRecovery({ selections, message: "Memuat lampiran tersimpan…", busy: true });
+    try {
+      const saved = await api<Attachment[]>("attachments/metadata", { projectId: p.id, attachments: selections });
+      if (!valid()) return;
+      setAttachments(saved);
+      setAttachmentRecovery(null);
+    } catch (error) {
+      if (valid()) setAttachmentRecovery({ selections, message: `Lampiran belum dimuat: ${(error as Error).message}. Pilihan tersimpan tetap aman. Coba lagi atau hapus pilihan lama lalu unggah ulang.`, busy: false });
+    }
+  };
   const select = async (p: Project) => {
     if (
       dirty &&
@@ -427,12 +455,7 @@ export default function App() {
     setAi({ provider: draft.provider || "codex", model: draft.model || "" });
     setTab(draft.tab || "preview");
     if (draft.attachments?.length) {
-      try {
-        const saved = await api<Attachment[]>("attachments/metadata", { projectId: p.id, attachments: draft.attachments });
-        if (current.current?.id === p.id && draftController.current === controller) setAttachments(saved);
-      } catch {
-        if (current.current?.id === p.id) setDraftStatus("Lampiran lama tidak tersedia; unggah ulang gambar.");
-      }
+      await hydrateAttachments(p, controller, draft.attachments);
     }
     if (draft.target) {
       try {
@@ -440,12 +463,12 @@ export default function App() {
           projectId: p.id,
           ...draft.target,
         });
-        if (current.current?.id === p.id) setEditTarget(target);
+        if (current.current?.id === p.id && draftController.current === controller) setEditTarget(target);
       } catch {
-        setDraftStatus("Target lama tidak valid; ambil screenshot baru.");
+        if (current.current?.id === p.id && draftController.current === controller) setDraftStatus("Target lama tidak valid; ambil screenshot baru.");
       }
     }
-    if (current.current?.id !== p.id) return false;
+    if (current.current?.id !== p.id || draftController.current !== controller) return false;
     setDraftReady(p.id);
     await refresh(p);
     const state = await api("state");
@@ -749,6 +772,7 @@ export default function App() {
         !selected ||
         draftReady !== selected.id ||
         attachmentBusy ||
+        attachmentRecovery ||
         (!text.trim() && !attachments.length)
       )
         return;
@@ -1424,7 +1448,7 @@ export default function App() {
                             {a.kind === "image" && selected ? <>
                               <AttachmentThumbnail key={`${selected.id}:${a.id}`} projectId={selected.id} id={a.id} name={a.name} />
                               <span className="sent-image-label">{a.name}<small>{a.imageUsage === "asset" ? "Aset halaman" : a.imageUsage === "reference" ? "Referensi desain" : "Auto"}</small></span>
-                              <button aria-label={`Gunakan lagi ${a.name}`} disabled={busy || attachmentBusy || !!active || draftReady !== selected.id || attachments.some(item => item.id === a.id) || attachments.length >= 10}
+                              <button aria-label={`Gunakan lagi ${a.name}`} disabled={busy || attachmentBusy || !!attachmentRecovery || !!active || draftReady !== selected.id || attachments.some(item => item.id === a.id) || attachments.length >= 10}
                                 onClick={() => setAttachments(items => items.some(item => item.id === a.id) || items.length >= 10 ? items : [...items, { id: a.id, name: a.name, kind: "image", imageUsage: a.imageUsage || "auto" }])}>Gunakan lagi</button>
                             </> : <>{a.kind === "video" ? "▣" : a.kind === "link" ? "↗" : a.kind === "archive" ? "◇" : a.kind === "code" ? "⌘" : a.kind === "document" ? "▤" : "▧"} {a.name}</>}
                           </span>
@@ -1547,7 +1571,7 @@ export default function App() {
                   projectId={selected?.id}
                   items={attachments}
                   onChange={setAttachments}
-                  disabled={busy || !!active || deploying || draftReady !== selected?.id}
+                  disabled={busy || !!active || deploying || !!attachmentRecovery || draftReady !== selected?.id}
                   onBusy={setAttachmentBusy}
                   onError={setError}
                 />
@@ -1653,6 +1677,7 @@ export default function App() {
                         (!text.trim() && !attachments.length) ||
                         busy ||
                         attachmentBusy ||
+                        !!attachmentRecovery ||
                         draftReady !== selected?.id ||
                         deploying ||
                         !stream
@@ -1666,6 +1691,20 @@ export default function App() {
               </div>
               <div className="composer-caption">
                 {hints[mode]} · {draftStatus}
+                {attachmentRecovery && selected && (
+                  <div data-attachment-recovery role="status">
+                    {attachmentRecovery.message}
+                    <button disabled={attachmentRecovery.busy} onClick={() => {
+                      const controller = draftController.current;
+                      if (controller?.projectId === selected.id) void hydrateAttachments(selected, controller, attachmentRecovery.selections);
+                    }}>Coba muat lampiran lagi</button>
+                    <button onClick={() => {
+                      hydrationRevision.current++;
+                      setAttachmentRecovery(null);
+                      setAttachments([]);
+                    }}>Hapus pilihan lama untuk unggah ulang</button>
+                  </div>
+                )}
                 {draftLoadFailed && selected && (
                   <button
                     onClick={() =>

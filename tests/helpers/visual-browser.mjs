@@ -3,7 +3,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { DevTools } from "../../server/browser-tests.mjs";
 
-export async function browser(t, root, origins) {
+export async function browser(t, root, origins, intercept) {
   const profile = await fs.mkdtemp(path.join(root, "ui-chrome-"));
   const child = spawn(
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -58,6 +58,7 @@ export async function browser(t, root, origins) {
       if (method === "Runtime.exceptionThrown")
         errors.push(params.exceptionDetails.text);
       if (method === "Fetch.requestPaused") {
+        if (intercept?.(client, params)) return;
         const allowed = origins.some((origin) => {
           try {
             return new URL(params.request.url).origin === origin;

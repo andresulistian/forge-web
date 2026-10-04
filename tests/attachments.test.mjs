@@ -18,7 +18,7 @@ import { Codex } from "../server/codex.mjs";
 import { Gemini } from "../server/gemini.mjs";
 const image = {
   mimeType: "image/png",
-  data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j1ioAAAAASUVORK5CYII=",
+  data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
 };
 function storedZip(name, content) {
   const filename = Buffer.from(name),
