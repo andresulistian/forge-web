@@ -194,6 +194,7 @@ export default function App() {
     busy: boolean;
   } | null>(null);
   const hydrationRevision = useRef(0);
+  const releaseHydration = useRef<(() => void) | null>(null);
   const [draftStatus, setDraftStatus] = useState("Memulihkan draft…");
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [visualState, setVisualState] = useState<VisualState | null>(null);
@@ -321,6 +322,8 @@ export default function App() {
   };
   const resetProjectState = (nextProject?: Project | null) => {
     hydrationRevision.current++;
+    releaseHydration.current?.();
+    releaseHydration.current = null;
     setAttachmentRecovery(null);
     if (nextProject) {
       revision.current++;
@@ -400,16 +403,29 @@ export default function App() {
     selections: NonNullable<Draft["attachments"]>,
   ) => {
     const requestRevision = ++hydrationRevision.current;
+    releaseHydration.current?.();
+    let release!: () => void;
+    const released = new Promise<undefined>((resolve) => {
+      release = () => resolve(undefined);
+      releaseHydration.current = release;
+    });
     const valid = () => current.current?.id === p.id &&
       draftController.current === controller && hydrationRevision.current === requestRevision;
     setAttachmentRecovery({ selections, message: "Memuat lampiran tersimpan…", busy: true });
     try {
-      const saved = await api<Attachment[]>("attachments/metadata", { projectId: p.id, attachments: selections });
-      if (!valid()) return;
+      // Explicit discard/project changes release initial draft hydration even
+      // when the old HTTP request never settles. Its late result stays obsolete.
+      const saved = await Promise.race([
+        api<Attachment[]>("attachments/metadata", { projectId: p.id, attachments: selections }),
+        released,
+      ]);
+      if (!valid() || !saved) return;
       setAttachments(saved);
       setAttachmentRecovery(null);
     } catch (error) {
       if (valid()) setAttachmentRecovery({ selections, message: `Lampiran belum dimuat: ${(error as Error).message}. Pilihan tersimpan tetap aman. Coba lagi atau hapus pilihan lama lalu unggah ulang.`, busy: false });
+    } finally {
+      if (releaseHydration.current === release) releaseHydration.current = null;
     }
   };
   const select = async (p: Project) => {
@@ -653,6 +669,11 @@ export default function App() {
     return () => {
       alive = false;
       abort.abort();
+      hydrationRevision.current++;
+      releaseHydration.current?.();
+      releaseHydration.current = null;
+      draftController.current = null;
+      current.current = null;
     };
   }, []);
   useEffect(() => {
@@ -1700,6 +1721,8 @@ export default function App() {
                     }}>Coba muat lampiran lagi</button>
                     <button onClick={() => {
                       hydrationRevision.current++;
+                      releaseHydration.current?.();
+                      releaseHydration.current = null;
                       setAttachmentRecovery(null);
                       setAttachments([]);
                     }}>Hapus pilihan lama untuk unggah ulang</button>

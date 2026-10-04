@@ -161,6 +161,146 @@ test("PNG chunk CRC, deflate, filter/pixel corruption and truncation never becom
 
 export { png, item, chunk };
 
+test("APNG cannot hide an invalid default IDAT raster outside its animation", async (t) => {
+  const forge = await isolatedForge(t);
+  const project = await forge.json("projects/create", {
+    name: "APNG default validation",
+  });
+  const control = Buffer.alloc(8);
+  control.writeUInt32BE(1);
+  const frame = Buffer.alloc(26);
+  frame.writeUInt32BE(1, 4);
+  frame.writeUInt32BE(1, 8);
+  frame.writeUInt16BE(1, 20);
+  frame.writeUInt16BE(10, 22);
+  const sequence = Buffer.alloc(4);
+  sequence.writeUInt32BE(1);
+  const animated = (base, animationPixels = Buffer.from([0, 0, 255, 0, 255])) =>
+    Buffer.concat([
+      signature,
+      base.subarray(8, 33),
+      chunk("acTL", control),
+      // IDAT before fcTL: the default image is NOT an animation frame.
+      base.subarray(33, -12),
+      chunk("fcTL", frame),
+      chunk("fdAT", Buffer.concat([sequence, deflateSync(animationPixels)])),
+      base.subarray(-12),
+    ]);
+  const invalid = png(1, 1, Buffer.from([99, 0, 0, 0, 255]));
+  const staticResponse = await forge.request("attachments", {
+    projectId: project.id,
+    item: item(invalid),
+  });
+  const animatedResponse = await forge.request("attachments", {
+    projectId: project.id,
+    item: item(animated(invalid)),
+  });
+  const response = await animatedResponse.json();
+  const preview = response.id
+    ? await forge.request(
+        `attachments/image?projectId=${project.id}&id=${response.id}`,
+      )
+    : null;
+  console.log(
+    "APNG_DEFAULT_EVIDENCE",
+    JSON.stringify({
+      staticDefaultStatus: staticResponse.status,
+      apngStatus: animatedResponse.status,
+      previewStatus: preview?.status,
+      filterByte: 99,
+      evidenceRoot: forge.root,
+    }),
+  );
+  assert.equal(
+    staticResponse.status,
+    400,
+    "identical default IDAT is invalid as an ordinary PNG",
+  );
+  assert.equal(
+    animatedResponse.status,
+    400,
+    "a valid separate animation cannot validate the corrupt default raster",
+  );
+
+  const valid = await forge.json("attachments", {
+    projectId: project.id,
+    item: item(animated(png())),
+  });
+  const previewRoute = `attachments/image?projectId=${project.id}&id=${valid.id}`;
+  assert.equal(
+    (await forge.request(previewRoute)).status,
+    200,
+    "valid APNG with excluded default is supported",
+  );
+  assert.equal(
+    (await forge.request(previewRoute, undefined, false)).status,
+    401,
+  );
+  const indexedHeader = Buffer.alloc(13);
+  indexedHeader.writeUInt32BE(1);
+  indexedHeader.writeUInt32BE(1, 4);
+  indexedHeader[8] = 8;
+  indexedHeader[9] = 3;
+  const indexed = Buffer.concat([
+    signature,
+    chunk("IHDR", indexedHeader),
+    chunk("PLTE", Buffer.from([0, 0, 0, 0, 255, 0])),
+    chunk("tRNS", Buffer.from([0, 255])),
+    chunk("IDAT", deflateSync(Buffer.from([0, 0]))),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+  assert.equal(
+    (
+      await forge.request("attachments", {
+        projectId: project.id,
+        item: item(animated(indexed, Buffer.from([0, 1]))),
+      })
+    ).status,
+    200,
+    "default decode retains palette and transparency metadata",
+  );
+  const other = await forge.json("projects/create", { name: "APNG isolation" });
+  assert.equal(
+    (
+      await forge.request(
+        `attachments/image?projectId=${other.id}&id=${valid.id}`,
+      )
+    ).status,
+    404,
+  );
+  const file = path.join(
+    forge.root,
+    "data/attachments",
+    project.id,
+    valid.id + ".json",
+  );
+  const saved = JSON.parse(await fs.readFile(file, "utf8"));
+  for (const [label, bytes] of [
+    ["invalid default", animated(invalid)],
+    ["invalid animation", animated(png(), Buffer.from([99, 0, 255, 0, 255]))],
+  ]) {
+    assert.equal(
+      (
+        await forge.request("attachments", {
+          projectId: project.id,
+          item: item(bytes),
+        })
+      ).status,
+      400,
+      label + " upload",
+    );
+    await fs.writeFile(
+      file,
+      JSON.stringify({ ...saved, images: item(bytes).images }),
+    );
+    assert.equal(
+      (await forge.request(previewRoute)).status,
+      400,
+      label + " legacy preview",
+    );
+  }
+});
+
 test("native decoder has no Forge credentials in its child environment", async (t) => {
   const key = "FORGE_DECODER_SENTINEL_TOKEN",
     previous = process.env[key];

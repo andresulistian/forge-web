@@ -20,6 +20,8 @@ function pngContainer(bytes) {
     hasPixels = false;
   const compressed = [];
   const animation = [];
+  const defaultChunks = [bytes.subarray(0, 8)];
+  let animated = false;
   let frameData = [];
   for (let offset = 8; offset < bytes.length;) {
     if (offset + 12 > bytes.length) throw Error("PNG terpotong; unggah ulang.");
@@ -34,6 +36,12 @@ function pngContainer(bytes) {
       crc = crcTable[(crc ^ bytes[index]) & 255] ^ (crc >>> 8);
     if ((crc ^ 0xffffffff) >>> 0 !== bytes.readUInt32BE(end - 4))
       throw Error("Checksum PNG rusak; unggah ulang.");
+    // PNG3 §4.9.1: IDAT may be outside the animation. Native animation
+    // decoding alone then never reads that raster. Remove ONLY APNG chunks
+    // for a separate native default-image decode; retain all PNG metadata
+    // and the original checksummed chunks (including palette/transparency).
+    if (["acTL", "fcTL", "fdAT"].includes(type)) animated = true;
+    else defaultChunks.push(bytes.subarray(offset, end));
     if (type === "IDAT") {
       hasPixels = true;
       compressed.push(bytes.subarray(offset + 8, end - 4));
@@ -54,7 +62,10 @@ function pngContainer(bytes) {
   }
   if (!ended || !hasPixels) throw Error("PNG tidak lengkap; unggah ulang.");
   if (frameData.length) animation.push(Buffer.concat(frameData));
-  return [Buffer.concat(compressed), ...animation];
+  return {
+    compressed: [Buffer.concat(compressed), ...animation],
+    defaultImage: animated ? Buffer.concat(defaultChunks) : null,
+  };
 }
 
 // Chrome also tolerates a bad zlib Adler checksum. The standard zlib decoder
@@ -304,7 +315,8 @@ async function startWorker() {
 
 export async function verifyRaster(bytes, mimeType, frame = false) {
   if (stopping) throw Error("Decoder gambar sedang ditutup.");
-  const compressed = mimeType === "image/png" ? pngContainer(bytes) : null;
+  const container = mimeType === "image/png" ? pngContainer(bytes) : null;
+  const compressed = container?.compressed;
   const [width, height] = dimensions(bytes, mimeType);
   const maximum = frame ? 1600 : 32768;
   const pixels = frame ? 1600 * 1600 : 40_000_000;
@@ -351,7 +363,8 @@ export async function verifyRaster(bytes, mimeType, frame = false) {
       const result = await Promise.race([
         current.client.send("Runtime.evaluate", {
           expression: `(async()=>{
-            const bytes=Uint8Array.from(atob(${JSON.stringify(bytes.toString("base64"))}),c=>c.charCodeAt(0));
+            for(const encoded of ${JSON.stringify((container?.defaultImage ? [container.defaultImage, bytes] : [bytes]).map((value) => value.toString("base64")))}) {
+            const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
             const decoder=new ImageDecoder({data:bytes,type:${JSON.stringify(mimeType)},preferAnimation:true});
             try {
               await decoder.tracks.ready; await decoder.completed;
@@ -362,8 +375,9 @@ export async function verifyRaster(bytes, mimeType, frame = false) {
                 try { if(!decoded.complete||!decoded.image.displayWidth||!decoded.image.displayHeight||decoded.image.displayWidth>${maximum}||decoded.image.displayHeight>${maximum}||decoded.image.displayWidth*decoded.image.displayHeight>${pixels}) throw Error('Dimensi raster hasil decode tidak valid.'); }
                 finally { decoded.image.close(); }
               }
-              return true;
             } finally { decoder.close(); }
+            }
+            return true;
           })()`,
           returnByValue: true,
           awaitPromise: true,

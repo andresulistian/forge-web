@@ -23,6 +23,182 @@ async function savedDraft(forge, project) {
   });
   return attachments;
 }
+test(
+  "discard during INITIAL pending metadata releases composer and persists deletion before the stale response",
+  { timeout: 60000 },
+  async (t) => {
+    const forge = await isolatedForge(t);
+    const project = await forge.json("projects/create", {
+      name: "Pending initial metadata",
+    });
+    await savedDraft(forge, project);
+    let held;
+    const b = await browser(
+      t,
+      forge.root,
+      [forge.connection.url],
+      (client, params) => {
+        if (!params.request.url.endsWith("/api/attachments/metadata"))
+          return false;
+        held = { client, requestId: params.requestId };
+        return true;
+      },
+    );
+    await b.client.send("Page.navigate", {
+      url: forge.connection.url + "/#token=" + forge.connection.token,
+    });
+    await until(() => !!held);
+    await b.click("Hapus pilihan lama untuk unggah ulang");
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const afterDiscard = await b.evaluate(
+      `({recoveryVisible:!!document.querySelector('[data-attachment-recovery]'),composerDisabled:document.querySelector('#forge-composer').disabled,attachDisabled:[...document.querySelectorAll('button')].find(x=>x.textContent.trim()==='Lampirkan file').disabled,text:document.querySelector('#forge-composer').value})`,
+    );
+    const beforeRelease = (await forge.json(`session?projectId=${project.id}`))
+      .draft;
+    console.log(
+      "DISCARD_PENDING",
+      JSON.stringify({
+        afterDiscard,
+        draftAttachments: beforeRelease.attachments,
+        evidenceRoot: forge.root,
+      }),
+    );
+    if (!afterDiscard.composerDisabled) {
+      await b.fill("#forge-composer", "Edited after initial discard");
+      await until(
+        async () =>
+          (await forge.json(`session?projectId=${project.id}`)).draft.text ===
+          "Edited after initial discard",
+      );
+    }
+    // Retain the exact reviewer timing: release only AFTER the readback above.
+    await held.client.send("Fetch.continueRequest", {
+      requestId: held.requestId,
+    });
+    await until(() =>
+      b.evaluate(`!document.querySelector('#forge-composer').disabled`),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.equal(
+      afterDiscard.composerDisabled,
+      false,
+      "discard must not wait for the initial metadata request",
+    );
+    assert.equal(
+      afterDiscard.attachDisabled,
+      false,
+      "discard must allow immediate reupload",
+    );
+    assert.equal(afterDiscard.recoveryVisible, false);
+    assert.equal(afterDiscard.text, "Recover me");
+    assert.deepEqual(
+      beforeRelease.attachments,
+      [],
+      "deletion must already be persisted before releasing the request",
+    );
+    assert.deepEqual(
+      (await forge.json(`session?projectId=${project.id}`)).draft.attachments,
+      [],
+      "stale success cannot restore IDs",
+    );
+    assert.equal(
+      await b.evaluate(
+        `document.querySelectorAll('.attachment-chips img').length`,
+      ),
+      0,
+    );
+    assert.equal(
+      await b.evaluate(`document.querySelector('#forge-composer').value`),
+      "Edited after initial discard",
+      "late metadata cannot restore old text",
+    );
+    assert.deepEqual(await forge.json(`messages?projectId=${project.id}`), []);
+    assert.equal((await forge.json("state")).active, null);
+    console.log("Evidence", forge.root);
+  },
+);
+
+test(
+  "late successful initial metadata after discard cannot change another project",
+  { timeout: 60000 },
+  async (t) => {
+    const forge = await isolatedForge(t);
+    const first = await forge.json("projects/create", {
+      name: "Discard source",
+    });
+    await savedDraft(forge, first);
+    const other = await forge.json("projects/create", {
+      name: "Discard other",
+    });
+    let held;
+    const b = await browser(
+      t,
+      forge.root,
+      [forge.connection.url],
+      (client, params) => {
+        if (!params.request.url.endsWith("/api/attachments/metadata"))
+          return false;
+        if (JSON.parse(params.request.postData).projectId !== first.id)
+          return false;
+        held = { client, requestId: params.requestId };
+        return true;
+      },
+    );
+    await b.client.send("Page.navigate", {
+      url: forge.connection.url + "/#token=" + forge.connection.token,
+    });
+    await until(() => !!held);
+    await b.click("Hapus pilihan lama untuk unggah ulang");
+    await until(
+      async () =>
+        !(await forge.json(`session?projectId=${first.id}`)).draft.attachments
+          .length,
+    );
+    await b.click("Proyek");
+    await b.evaluate(
+      `[...document.querySelectorAll('button.project')].find(e=>e.textContent.includes('Discard other')).click()`,
+    );
+    await until(() =>
+      b.evaluate(
+        `document.querySelector('.breadcrumb strong')?.textContent==='Discard other' && !document.querySelector('#forge-composer').disabled`,
+      ),
+    );
+    await b.fill("#forge-composer", "Other draft remains isolated");
+    await until(
+      async () =>
+        (await forge.json(`session?projectId=${other.id}`)).draft.text ===
+        "Other draft remains isolated",
+    );
+    const otherBefore = (await forge.json(`session?projectId=${other.id}`))
+      .draft;
+    await held.client.send("Fetch.continueRequest", {
+      requestId: held.requestId,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    assert.deepEqual(
+      (await forge.json(`session?projectId=${other.id}`)).draft,
+      otherBefore,
+    );
+    assert.deepEqual(
+      (await forge.json(`session?projectId=${first.id}`)).draft.attachments,
+      [],
+    );
+    assert.equal(
+      await b.evaluate(`document.querySelector('#forge-composer').value`),
+      "Other draft remains isolated",
+    );
+    assert.equal(
+      await b.evaluate(
+        `!!document.querySelector('[data-attachment-recovery]') || !!document.querySelector('.attachment-chips img')`,
+      ),
+      false,
+    );
+    assert.deepEqual(await forge.json(`messages?projectId=${first.id}`), []);
+    assert.deepEqual(await forge.json(`messages?projectId=${other.id}`), []);
+    console.log("Evidence", forge.root);
+  },
+);
+
 async function navigate(b, forge) {
   await b.client.send("Page.navigate", {
     url: forge.connection.url + "/#token=" + forge.connection.token,
