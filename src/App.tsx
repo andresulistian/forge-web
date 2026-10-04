@@ -653,6 +653,35 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [modal, confirm, deleting, clearingWorkspace]);
 
+  const modalReturnFocus = useRef<{
+    control: HTMLElement;
+    fallback: HTMLElement | null;
+  } | null>(null);
+  useEffect(() => {
+    // Record before React mounts autoFocus inputs, not in the dialog effect.
+    const remember = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target.closest(".modal")) return;
+      const control = target.closest<HTMLElement>(
+        "button, input, select, textarea, [tabindex]",
+      );
+      if (!control) return;
+      modalReturnFocus.current = {
+        control,
+        fallback:
+          control
+            .closest(".context-disclosure")
+            ?.querySelector<HTMLElement>(":scope > button") ||
+          document.getElementById("project-toggle"),
+      };
+    };
+    document.addEventListener("focusin", remember);
+    document.addEventListener("pointerdown", remember);
+    return () => {
+      document.removeEventListener("focusin", remember);
+      document.removeEventListener("pointerdown", remember);
+    };
+  }, []);
   const modalVisible = !!(modal || confirm || deleting || clearingWorkspace);
   const wasToolOpen = useRef(false);
   useLayoutEffect(() => {
@@ -662,7 +691,7 @@ export default function App() {
   }, [workspaceView]);
   useLayoutEffect(() => {
     if (!modalVisible) return;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = modalReturnFocus.current;
     const dialog = document.querySelector<HTMLElement>('.modal[role="dialog"]');
     const controls = () =>
       Array.from(
@@ -688,7 +717,17 @@ export default function App() {
     dialog?.addEventListener("keydown", trap);
     return () => {
       dialog?.removeEventListener("keydown", trap);
-      if (previous?.isConnected) previous.focus();
+      const target = [
+        previous?.control,
+        previous?.fallback,
+        document.getElementById("project-toggle"),
+      ].find(
+        (el) =>
+          el?.isConnected &&
+          el.getClientRects().length &&
+          !el.closest("[hidden]"),
+      );
+      target?.focus();
     };
   }, [modalVisible]);
 

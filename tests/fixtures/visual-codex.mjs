@@ -5,10 +5,22 @@ import fs from "node:fs/promises";
 import path from "node:path";
 let cwd;
 let seq = 0;
+let approvalTurn;
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\n");
 createInterface({ input: process.stdin }).on("line", async (line) => {
   const m = JSON.parse(line);
   if (!m.id) return;
+  if (m.id === "fixture-approval" && m.result) {
+    await fs.writeFile(
+      path.join(process.env.HOME, "fixture-approval-result.json"),
+      JSON.stringify(m.result),
+    );
+    send({
+      method: "turn/completed",
+      params: { turn: { id: approvalTurn, status: "completed" } },
+    });
+    return;
+  }
   let result = {};
   if (m.method === "turn/interrupt") {
     send({ id: m.id, result });
@@ -47,6 +59,18 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       method: "turn/started",
       params: { turn: { id, status: "inProgress" } },
     });
+    if (m.params.input[0].text.includes("REQUEST_APPROVAL")) {
+      approvalTurn = id;
+      send({
+        id: "fixture-approval",
+        method: "item/commandExecution/requestApproval",
+        params: {
+          command: "printf fixture-only",
+          reason: "Isolated approval fixture; no command is executed.",
+        },
+      });
+      return;
+    }
     if (
       m.params.input[0].text.includes("HOLD_FOR_RESTART") ||
       (m.params.input.some((i) => i.type === "image") &&

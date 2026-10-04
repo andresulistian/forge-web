@@ -20,9 +20,7 @@
   position: relative;
 }
 .context-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
+  position: fixed;
   z-index: 60;
   width: min(320px, calc(100vw - 32px));
   max-height: 75dvh;
@@ -49,15 +47,6 @@
 .context-panel .workflow-steps {
   display: flex;
   flex-direction: column;
-}
-.composer-tools .context-panel,
-.ai-picker .context-panel {
-  top: auto;
-  bottom: calc(100% + 8px);
-}
-.ai-picker .context-panel {
-  left: 0;
-  right: auto;
 }
 .ai-picker > .context-disclosure > button {
   max-width: 100%;
@@ -530,6 +519,11 @@ h1 {
   min-width: 115px;
   max-width: 100%;
 }
+button.send:hover:not(:disabled),
+button.send:focus-visible:not(:disabled) {
+  background: var(--action);
+  color: var(--on-action);
+}
 .send {
   background: var(--action);
   color: var(--on-action);
@@ -806,7 +800,7 @@ h1 {
 .annotation-layer.is-editing {
   pointer-events: auto;
   cursor: crosshair;
-  background: var(--accent-soft);
+  background: transparent;
   box-shadow: inset 0 0 0 2px transparent;
 }
 .annotation-marker {
