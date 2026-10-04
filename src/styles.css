@@ -3,6 +3,7 @@
   font-family: var(--font-sans);
   color: var(--text);
   background: var(--canvas);
+  accent-color: var(--accent);
   font-synthesis: none;
   font-size: 15px;
 }
@@ -64,6 +65,13 @@
 body {
   margin: 0;
 }
+a {
+  color: var(--accent);
+}
+::selection {
+  color: var(--text);
+  background: var(--accent-soft);
+}
 html,
 body,
 #root {
@@ -102,6 +110,7 @@ button:disabled {
   opacity: 0.38;
   cursor: not-allowed;
 }
+a:focus-visible,
 summary:focus-visible,
 button:focus-visible,
 input:focus-visible,
