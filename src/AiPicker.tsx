@@ -1,3 +1,4 @@
+import ContextPanel from "./ContextPanel";
 import { useEffect, useState } from "react";
 import { RefreshCw, LogIn, Trash2, Cpu } from "lucide-react";
 import { api } from "./api";
@@ -223,133 +224,140 @@ export default function AiPicker({
   };
   return (
     <div className="ai-picker">
-      <div className="ai-picker-row">
-        <label>
-          AI
-          <select
-            aria-label="Provider AI"
-            disabled={disabled || loading}
-            value={value.provider}
-            onChange={(e) => {
-              const custom = providers.find(
-                (item) => `api:${item.id}` === e.target.value,
-              );
-              change(
-                custom
-                  ? { provider: `api:${custom.id}`, model: custom.defaultModel }
-                  : e.target.value === "gemini"
-                    ? { provider: "gemini", model: "flash" }
-                    : e.target.value === "ollama"
-                      ? { provider: "ollama", model: "" }
-                      : { provider: "codex", model: "" },
-              );
-            }}
-          >
-            <option value="codex">OpenAI · Codex</option>
-            <option value="gemini">Google · Gemini</option>
-            <option value="ollama">Local · Ollama</option>
-            {providers.map((item) => (
-              <option key={item.id} value={`api:${item.id}`}>
-                API · {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          MODEL
-          <select
-            aria-label="Model AI"
-            disabled={disabled || loading}
-            value={value.model}
-            onChange={(e) => change({ ...value, model: e.target.value })}
-          >
-            {!models.some((m) => m.id === value.model) && (
-              <option value={value.model} disabled>
-                {value.model} · tidak tersedia
-              </option>
-            )}
-            {models.map((m) => (
-              <option key={m.id} value={m.id} disabled={!m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          aria-label="Refresh koneksi AI"
-          title="Periksa koneksi dan model"
-          disabled={disabled || loading || !ready}
-          onClick={() => setRevision((r) => r + 1)}
-        >
-          <RefreshCw size={13} className={loading ? "spin" : ""} />
-        </button>
-      </div>
-      {value.provider === "gemini" && (
-        <div className="ai-connection">
-          <span>
-            {loading
-              ? "Menghubungkan Gemini…"
-              : catalog?.authenticated
-                ? "Login Gemini aktif · memakai akun CLI Anda"
-                : "Gunakan akun Google yang terhubung ke Gemini CLI."}
-          </span>
+      <ContextPanel
+        label={`AI · ${models.find((m) => m.id === value.model)?.name || value.model || "Pilih model"}`}
+      >
+        <div className="ai-picker-row">
+          <label>
+            AI
+            <select
+              aria-label="Provider AI"
+              disabled={disabled || loading}
+              value={value.provider}
+              onChange={(e) => {
+                const custom = providers.find(
+                  (item) => `api:${item.id}` === e.target.value,
+                );
+                change(
+                  custom
+                    ? {
+                        provider: `api:${custom.id}`,
+                        model: custom.defaultModel,
+                      }
+                    : e.target.value === "gemini"
+                      ? { provider: "gemini", model: "flash" }
+                      : e.target.value === "ollama"
+                        ? { provider: "ollama", model: "" }
+                        : { provider: "codex", model: "" },
+                );
+              }}
+            >
+              <option value="codex">OpenAI · Codex</option>
+              <option value="gemini">Google · Gemini</option>
+              <option value="ollama">Local · Ollama</option>
+              {providers.map((item) => (
+                <option key={item.id} value={`api:${item.id}`}>
+                  API · {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            MODEL
+            <select
+              aria-label="Model AI"
+              disabled={disabled || loading}
+              value={value.model}
+              onChange={(e) => change({ ...value, model: e.target.value })}
+            >
+              {!models.some((m) => m.id === value.model) && (
+                <option value={value.model} disabled>
+                  {value.model} · tidak tersedia
+                </option>
+              )}
+              {models.map((m) => (
+                <option key={m.id} value={m.id} disabled={!m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
+            aria-label="Refresh koneksi AI"
+            title="Periksa koneksi dan model"
             disabled={disabled || loading || !ready}
-            onClick={() => void login()}
+            onClick={() => setRevision((r) => r + 1)}
           >
-            <LogIn size={12} /> Login Google
+            <RefreshCw size={13} className={loading ? "spin" : ""} />
           </button>
         </div>
-      )}
-      {value.provider === "codex" && (
-        <div className="ai-connection usage-state">
-          {usage?.windows?.length ? (
-            usage.windows.map((window) => (
-              <span key={`${window.id}:${window.window}`}>
-                {window.name} ·{" "}
-                {window.window === "primary" ? "utama" : "tambahan"}:{" "}
-                {Math.round(window.remainingPercent)}% kuota tersisa
-                {window.windowDurationMins
-                  ? ` / ${window.windowDurationMins} menit`
-                  : ""}
-                {window.resetsAt
-                  ? ` · reset ${new Date(window.resetsAt * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`
-                  : ""}
-              </span>
-            ))
-          ) : (
-            <span>Kuota Codex belum tersedia dari akun ini.</span>
-          )}
-        </div>
-      )}
-      {value.provider === "gemini" && (
-        <div className="ai-connection usage-state">
-          <span>
-            {usage?.context && usage.context.size > 0
-              ? `Konteks Gemini: ${usage.context.used.toLocaleString("id-ID")} / ${usage.context.size.toLocaleString("id-ID")} token · ${Math.max(0, usage.context.size - usage.context.used).toLocaleString("id-ID")} tersisa dalam percakapan`
-              : "Penggunaan konteks Gemini belum tersedia. Cek kuota akun lewat /stats model di Gemini CLI."}
-          </span>
-        </div>
-      )}
-      {["ollama"].includes(value.provider) && (
-        <div className="ai-connection local-ai-state">
-          <Cpu size={13} />
-          <span>
-            {loading
-              ? `Menghubungkan ${value.provider === "ollama" ? "Ollama" : "Ollama"} lokal…`
-              : catalog?.connected
-                ? `Model termuat di RAM · memori lokal ${catalog.memoryCount || 0} pesan`
-                : `Ollama belum tersambung`}
-          </span>
-          <button
-            title="Hapus memori percakapan lokal proyek ini"
-            disabled={disabled || loading || !ready || !projectId}
-            onClick={() => void clearMemory()}
-          >
-            <Trash2 size={12} /> Hapus memori
-          </button>
-        </div>
-      )}
+        {value.provider === "gemini" && (
+          <div className="ai-connection">
+            <span>
+              {loading
+                ? "Menghubungkan Gemini…"
+                : catalog?.authenticated
+                  ? "Login Gemini aktif · memakai akun CLI Anda"
+                  : "Gunakan akun Google yang terhubung ke Gemini CLI."}
+            </span>
+            <button
+              disabled={disabled || loading || !ready}
+              onClick={() => void login()}
+            >
+              <LogIn size={12} /> Login Google
+            </button>
+          </div>
+        )}
+        {value.provider === "codex" && (
+          <div className="ai-connection usage-state">
+            {usage?.windows?.length ? (
+              usage.windows.map((window) => (
+                <span key={`${window.id}:${window.window}`}>
+                  {window.name} ·{" "}
+                  {window.window === "primary" ? "utama" : "tambahan"}:{" "}
+                  {Math.round(window.remainingPercent)}% kuota tersisa
+                  {window.windowDurationMins
+                    ? ` / ${window.windowDurationMins} menit`
+                    : ""}
+                  {window.resetsAt
+                    ? ` · reset ${new Date(window.resetsAt * 1000).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`
+                    : ""}
+                </span>
+              ))
+            ) : (
+              <span>Kuota Codex belum tersedia dari akun ini.</span>
+            )}
+          </div>
+        )}
+        {value.provider === "gemini" && (
+          <div className="ai-connection usage-state">
+            <span>
+              {usage?.context && usage.context.size > 0
+                ? `Konteks Gemini: ${usage.context.used.toLocaleString("id-ID")} / ${usage.context.size.toLocaleString("id-ID")} token · ${Math.max(0, usage.context.size - usage.context.used).toLocaleString("id-ID")} tersisa dalam percakapan`
+                : "Penggunaan konteks Gemini belum tersedia. Cek kuota akun lewat /stats model di Gemini CLI."}
+            </span>
+          </div>
+        )}
+        {["ollama"].includes(value.provider) && (
+          <div className="ai-connection local-ai-state">
+            <Cpu size={13} />
+            <span>
+              {loading
+                ? `Menghubungkan ${value.provider === "ollama" ? "Ollama" : "Ollama"} lokal…`
+                : catalog?.connected
+                  ? `Model termuat di RAM · memori lokal ${catalog.memoryCount || 0} pesan`
+                  : `Ollama belum tersambung`}
+            </span>
+            <button
+              title="Hapus memori percakapan lokal proyek ini"
+              disabled={disabled || loading || !ready || !projectId}
+              onClick={() => void clearMemory()}
+            >
+              <Trash2 size={12} /> Hapus memori
+            </button>
+          </div>
+        )}
+      </ContextPanel>
       {(loginError || catalog?.error) && (
         <div className="ai-error" role="status">
           {loginError || catalog?.error}

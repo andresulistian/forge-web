@@ -10,6 +10,14 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   const m = JSON.parse(line);
   if (!m.id) return;
   let result = {};
+  if (m.method === "turn/interrupt") {
+    send({ id: m.id, result });
+    send({
+      method: "turn/completed",
+      params: { turn: { id: m.params.turnId, status: "interrupted" } },
+    });
+    return;
+  }
   if (m.method === "model/list")
     result = {
       data: [
@@ -35,6 +43,10 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       JSON.stringify(m.params.input),
     );
     send({ id: m.id, result });
+    send({
+      method: "turn/started",
+      params: { turn: { id, status: "inProgress" } },
+    });
     if (
       m.params.input[0].text.includes("HOLD_FOR_RESTART") ||
       (m.params.input.some((i) => i.type === "image") &&

@@ -1,0 +1,35 @@
+# Feature access — chat-first shell
+
+The default surface is chat. Preview/tool visibility is session-local (always closed on reload); the server draft still retains the last tool tab. The project sidebar has its own persisted open preference. No mode switch between Simple and Advanced exists.
+
+| Feature                                                                | Entry point                                   | Verification                                                                                                                         |
+| ---------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Projects / new / open folder                                           | Proyek → project drawer                       | Real browser opens/closes drawer and new-project modal; Escape and focus return                                                      |
+| Ask / Plan / Build, attachments, Send / Stop                           | Composer                                      | Existing regression suite; browser holds a fixture run, verifies Stop stays visible at 390px, and stops it                           |
+| Provider / model / refresh / usage / login / local memory              | AI model chip                                 | Browser opens real picker; existing provider tests retained                                                                          |
+| Single / multi-agent and Web mode                                      | Opsi chat                                     | Existing controls and persistence retained inside contextual disclosure                                                              |
+| Preview / refresh / new window / viewport / annotation                 | Preview                                       | Browser open/close without process start; Start still waits for confirmation                                                         |
+| Browser tests                                                          | Preview → Uji browser                         | Browser verifies collapsed by default and opens it; original backend tests retained                                                  |
+| Capture / snapshot DOM inspector / before-after / AI review            | Tools → Review visual (or preview disclosure) | Full visual-ui smoke captures, clicks actual snapshot coordinates, composes without executing, runs opted-in before/after and Accept |
+| Workflow Brief / Design / Build / Review, factual next/status          | Tools → Alur kerja                            | Existing missing-design and post-run factual-status assertions preserved through new path                                            |
+| Files / code editor                                                    | Tools → Kode                                  | Real visible route assertion; existing editor/save tests retained                                                                    |
+| Kanban                                                                 | Tools → Kanban                                | Real visible route assertion; task backend suite retained                                                                            |
+| Agent / skills / design identity / project memory / retry / run review | Tools → Agent                                 | Real route and skills/design/memory assertions; existing exact-run/retry/backend tests retained                                      |
+| Checkpoints / restore                                                  | Tools → Checkpoint                            | Real route assertion; restore confirmations retained                                                                                 |
+| Manual checkpoint creation                                             | Tools → Preferensi & proyek → Buat checkpoint | Existing explicit action retained; no creation on opening menu                                                                       |
+| Deploy / backend / release / security / monitoring                     | Tools → Deploy                                | Real route and child panel assertions; no cloud deployment or authorization attempted                                                |
+| Integrations / web-search keys / AI providers / GitHub / MCP / backups | Tools → Pengaturan                            | Real route and settings-section assertions; no credential entry or restore attempted                                                 |
+| Terminal / event activity                                              | Tools → Aktivitas                             | Real visible route assertion; command confirmation retained                                                                          |
+| Guide                                                                  | Tools → Forge Guide                           | Opens with focus, scoped Escape closes and returns focus; no persistent launcher                                                     |
+| Theme / approval sound / delete project / clear workspace              | Tools → Preferensi & proyek                   | Light/dark actually toggled; destructive actions still use original confirmations                                                    |
+
+## Evidence and limitations
+
+- `npm run check`: lint, 137 tests, TypeScript/Vite build; baseline Monaco chunk warning remains.
+- `node --test tests/simple-ui.smoke.mjs tests/visual-ui.smoke.mjs tests/visual-races.smoke.mjs`: six real-browser tests. Includes draft hydration failure/retry, stale target race, reload and server restart/new-port draft/tab recovery without replay.
+- 390, 1024 and 1440 CSS-pixel widths, light and dark, actual screenshots of chat / Preview / Tools. No page-level horizontal overflow in those samples.
+- Computed normal text contrast: light secondary 5.88:1, primary 16.80–17.89:1; dark secondary 8.42:1, primary 13.01–15.13:1. Focused composer boundary is measured separately against its surface (minimum 3:1 assertion). This is sampled contrast, not a full WCAG audit.
+- Browser interactions use visible enabled controls and CDP mouse events, not JavaScript `.click()` on hidden menu entries. Fixture AI and isolated preview exercise integration, not a production provider's judgment.
+- All new screenshots/logs, isolated HOME/data/projects/backups and basic-password-store/mock-keychain Chrome profiles stay outside the repository in scratch. No production DB, real credentials, live Forge process or Hermes app was modified.
+- Reference is verified shipped Hermes defaults, not a pixel match to the user's active Hermes theme. No remote fonts/dependencies were added.
+- Independent specification/quality review and live-path installation verification are the parent agent's next gate; this branch is not merged, pushed or installed.

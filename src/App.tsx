@@ -1,6 +1,7 @@
 import AttachmentPicker, { type Attachment } from "./Attachments";
 import AiPicker, { initialAi } from "./AiPicker";
 import GuideChat from "./GuideChat";
+import ContextPanel from "./ContextPanel";
 import DeployCenter from "./DeployCenter";
 import BrowserTests from "./BrowserTests";
 const MonacoCodeEditor = lazy(() => import("./MonacoCodeEditor"));
@@ -14,17 +15,21 @@ import { workflowStatus, type VisualState, type EditTarget } from "./workflow";
 import { DraftController } from "./session-draft";
 import KanbanPanel from "./KanbanPanel";
 import { playApprovalSound, unlockNotificationAudio } from "./notifications";
-import { useEffect, useRef, useState, Suspense, lazy } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  Suspense,
+  lazy,
+} from "react";
 import {
   ArrowUp,
   ArrowUpRight,
   Bell,
   BellOff,
-  Bot,
   Check,
-  ChevronRight,
   Code2,
-  Columns3,
   Crosshair,
   ExternalLink,
   FileCode2,
@@ -33,7 +38,6 @@ import {
   FolderOpen,
   Globe2,
   GitBranch,
-  History,
   Loader2,
   MessageSquare,
   Monitor,
@@ -42,11 +46,9 @@ import {
   Pencil,
   Plus,
   RefreshCw,
-  Rocket,
   RotateCcw,
   Save,
   ShieldCheck,
-  Settings2,
   Sparkles,
   Square,
   Sun,
@@ -108,11 +110,20 @@ export default function App() {
       ? "light"
       : "dark";
   });
-  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(() =>
-    localStorage.getItem("forge-workspace-view") === "chat"
-      ? "chat"
-      : "builder",
+  // Tool visibility is session-local; legacy Builder never overrides chat-first recovery.
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("chat");
+  const [sidebarOpen, setSidebarOpen] = useState(
+    () => localStorage.getItem("forge-sidebar-open") === "true",
   );
+  const [guideOpen, setGuideOpen] = useState(false);
+  const openTool = (next: string) => {
+    setTab(next);
+    setWorkspaceView("builder");
+  };
+  const toggleSidebar = (open: boolean) => {
+    setSidebarOpen(open);
+    localStorage.setItem("forge-sidebar-open", String(open));
+  };
   const [agentMode, setAgentMode] = useState<AgentMode>(() =>
     localStorage.getItem("forge-agent-mode") === "multi" ? "multi" : "single",
   );
@@ -180,29 +191,86 @@ export default function App() {
   const [visualState, setVisualState] = useState<VisualState | null>(null);
   const [hasDesign, setHasDesign] = useState(false);
   const [visualOpen, setVisualOpen] = useState(false);
-  const flow = workflowStatus(visualState?.run || null, visualState?.captures || [], messages.some(m => m.role === "user" && ["ask", "plan"].includes(m.mode || "")), hasDesign);
+  const flow = workflowStatus(
+    visualState?.run || null,
+    visualState?.captures || [],
+    messages.some(
+      (m) => m.role === "user" && ["ask", "plan"].includes(m.mode || ""),
+    ),
+    hasDesign,
+  );
   const refreshVisual = async (p: Project) => {
     const value = await api<VisualState>(`visual?projectId=${p.id}`);
     if (current.current?.id === p.id) setVisualState(value);
   };
   useEffect(() => {
     if (!selected) return;
-    const p = selected; let alive = true;
-    void refreshVisual(p).catch(e => { if (alive) setError(e.message); });
-    void api(`design-identity?projectId=${p.id}`).then(value => { if (alive && current.current?.id === p.id) setHasDesign(value.exists === true && !value.needsImport); }).catch(() => {});
-    const timer = active ? setInterval(() => void refreshVisual(p).catch(() => {}), 2500) : undefined;
-    return () => { alive = false; clearInterval(timer); };
+    const p = selected;
+    let alive = true;
+    void refreshVisual(p).catch((e) => {
+      if (alive) setError(e.message);
+    });
+    void api(`design-identity?projectId=${p.id}`)
+      .then((value) => {
+        if (alive && current.current?.id === p.id)
+          setHasDesign(value.exists === true && !value.needsImport);
+      })
+      .catch(() => {});
+    const timer = active
+      ? setInterval(() => void refreshVisual(p).catch(() => {}), 2500)
+      : undefined;
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
   }, [selected?.id, agentRevision, active]);
   useEffect(() => {
     const controller = draftController.current;
-    if (!selected || draftReady !== selected.id || controller?.projectId !== selected.id) return;
-    controller.edit({ text, mode, ...ai, tab, target: editTarget ? { captureId: editTarget.captureId, index: editTarget.index } : null });
+    if (
+      !selected ||
+      draftReady !== selected.id ||
+      controller?.projectId !== selected.id
+    )
+      return;
+    controller.edit({
+      text,
+      mode,
+      ...ai,
+      tab,
+      target: editTarget
+        ? { captureId: editTarget.captureId, index: editTarget.index }
+        : null,
+    });
     setDraftStatus("Menyimpan draft…");
-    const timer = setTimeout(() => void controller.flush().then(() => { if (draftController.current === controller) setDraftStatus("Draft tersimpan lokal di server"); }).catch(e => { if (draftController.current === controller) setDraftStatus(`Draft belum tersimpan: ${e.message}`); }), 350);
+    const timer = setTimeout(
+      () =>
+        void controller
+          .flush()
+          .then(() => {
+            if (draftController.current === controller)
+              setDraftStatus("Draft tersimpan lokal di server");
+          })
+          .catch((e) => {
+            if (draftController.current === controller)
+              setDraftStatus(`Draft belum tersimpan: ${e.message}`);
+          }),
+      350,
+    );
     return () => clearTimeout(timer);
-  }, [selected?.id, draftReady, text, mode, ai.provider, ai.model, tab, editTarget]);
+  }, [
+    selected?.id,
+    draftReady,
+    text,
+    mode,
+    ai.provider,
+    ai.model,
+    tab,
+    editTarget,
+  ]);
   useEffect(() => {
-    const flush = () => { void draftController.current?.flush().catch(() => {}); };
+    const flush = () => {
+      void draftController.current?.flush().catch(() => {});
+    };
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);
   }, []);
@@ -325,25 +393,45 @@ export default function App() {
     const controller = new DraftController(p.id, api);
     draftController.current = controller;
     setDraftLoadFailed(false);
-    try { await controller.load(); }
-    catch (error) {
+    try {
+      await controller.load();
+    } catch (error) {
       if (draftController.current === controller) {
         setDraftLoadFailed(true);
         setDraftStatus(`Draft gagal dimuat: ${(error as Error).message}`);
       }
       return false;
     }
-    if (current.current?.id !== p.id || draftController.current !== controller) return false;
-    if (controller.conflict && !window.confirm("Ada draft lokal belum terkirim yang berbeda dari server. Pulihkan draft lokal? Batal memakai versi server. Tidak ada Build yang dikirim.")) controller.discardLocal();
+    if (current.current?.id !== p.id || draftController.current !== controller)
+      return false;
+    if (
+      controller.conflict &&
+      !window.confirm(
+        "Ada draft lokal belum terkirim yang berbeda dari server. Pulihkan draft lokal? Batal memakai versi server. Tidak ada Build yang dikirim.",
+      )
+    )
+      controller.discardLocal();
     const draft = controller.draft;
-    if (current.current?.id !== p.id || draftController.current !== controller) return false;
+    if (current.current?.id !== p.id || draftController.current !== controller)
+      return false;
     setText(draft.text);
-    setMode((["ask", "plan", "build"].includes(draft.mode || "") ? draft.mode : "build") as Mode);
+    setMode(
+      (["ask", "plan", "build"].includes(draft.mode || "")
+        ? draft.mode
+        : "build") as Mode,
+    );
     setAi({ provider: draft.provider || "codex", model: draft.model || "" });
     setTab(draft.tab || "preview");
     if (draft.target) {
-      try { const target = await api<EditTarget>("visual/target", { projectId: p.id, ...draft.target }); if (current.current?.id === p.id) setEditTarget(target); }
-      catch { setDraftStatus("Target lama tidak valid; ambil screenshot baru."); }
+      try {
+        const target = await api<EditTarget>("visual/target", {
+          projectId: p.id,
+          ...draft.target,
+        });
+        if (current.current?.id === p.id) setEditTarget(target);
+      } catch {
+        setDraftStatus("Target lama tidak valid; ambil screenshot baru.");
+      }
     }
     if (current.current?.id !== p.id) return false;
     setDraftReady(p.id);
@@ -366,7 +454,10 @@ export default function App() {
         setApprovals(state.approvals);
         setDeployment(state.deployment || null);
         setConnected(true);
-        const recovered = state.projects.find((p: Project) => p.id === state.session?.projectId) || state.projects[0];
+        const recovered =
+          state.projects.find(
+            (p: Project) => p.id === state.session?.projectId,
+          ) || state.projects[0];
         if (recovered) await select(recovered);
         void subscribe(
           abort.signal,
@@ -377,8 +468,11 @@ export default function App() {
               setApprovals(e.payload.approvals);
               setDeployment(e.payload.deployment || null);
               setLive("");
-              setAgentRevision(v => v + 1);
-              if (current.current) void refresh(current.current).catch(err => setError(err.message));
+              setAgentRevision((v) => v + 1);
+              if (current.current)
+                void refresh(current.current).catch((err) =>
+                  setError(err.message),
+                );
               return;
             }
             if (e.type === "guide") return;
@@ -397,11 +491,19 @@ export default function App() {
             if (e.type === "approval-resolved")
               setApprovals((v) => v.filter((a) => a.id !== p.id));
             if (
-              ["agent-activity", "review-updated", "checkpoint", "visual-updated"].includes(e.type) ||
+              [
+                "agent-activity",
+                "review-updated",
+                "checkpoint",
+                "visual-updated",
+              ].includes(e.type) ||
               (e.type === "codex" && p.method === "turn/completed")
             )
               setAgentRevision((value) => value + 1);
-            if (e.type === "kanban-updated" && current.current?.id === p.projectId)
+            if (
+              e.type === "kanban-updated" &&
+              current.current?.id === p.projectId
+            )
               setKanbanRevision((value) => value + 1);
             if (e.type === "preview") setPreview(p.url ? p : null);
             if (e.type === "deploy-started") {
@@ -503,7 +605,12 @@ export default function App() {
           },
           setStream,
           state.eventId,
-        ).catch(e => { if (alive) { setStream(false); setError(e.message); } });
+        ).catch((e) => {
+          if (alive) {
+            setStream(false);
+            setError(e.message);
+          }
+        });
       } catch (e) {
         if (alive) setError((e as Error).message);
       }
@@ -529,7 +636,10 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && (modal || confirm || deleting || clearingWorkspace)) {
+      if (
+        event.key === "Escape" &&
+        (modal || confirm || deleting || clearingWorkspace)
+      ) {
         event.preventDefault();
         setModal(null);
         setConfirm(null);
@@ -543,9 +653,53 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [modal, confirm, deleting, clearingWorkspace]);
 
+  const modalVisible = !!(modal || confirm || deleting || clearingWorkspace);
+  const wasToolOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (workspaceView === "chat" && wasToolOpen.current)
+      document.getElementById("forge-composer")?.focus();
+    wasToolOpen.current = workspaceView !== "chat";
+  }, [workspaceView]);
+  useLayoutEffect(() => {
+    if (!modalVisible) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = document.querySelector<HTMLElement>('.modal[role="dialog"]');
+    const controls = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+        ) || [],
+      ).filter((el) => el.getClientRects().length);
+    controls()[0]?.focus();
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const items = controls();
+      const first = items[0],
+        last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      }
+      if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    dialog?.addEventListener("keydown", trap);
+    return () => {
+      dialog?.removeEventListener("keydown", trap);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [modalVisible]);
+
   const send = () =>
     run(async () => {
-      if (!selected || draftReady !== selected.id || (!text.trim() && !attachments.length)) return;
+      if (
+        !selected ||
+        draftReady !== selected.id ||
+        (!text.trim() && !attachments.length)
+      )
+        return;
       const value =
         text.trim() || "Analisis lampiran ini dan jelaskan temuan Anda.";
       setText("");
@@ -600,7 +754,12 @@ export default function App() {
   const retryAgent = (request: Record<string, unknown>) =>
     run(async () => {
       if (!selected || active) return;
-      if (!window.confirm("Jalankan ulang permintaan ini sebagai run baru? Tidak ada aksi dilanjutkan otomatis.")) return;
+      if (
+        !window.confirm(
+          "Jalankan ulang permintaan ini sebagai run baru? Tidak ada aksi dilanjutkan otomatis.",
+        )
+      )
+        return;
       const value = String(request.text || "").trim();
       if (!value) return;
       const nextMode = ["ask", "plan", "build"].includes(String(request.mode))
@@ -608,7 +767,9 @@ export default function App() {
         : "build";
       const provider = String(request.provider || ai.provider);
       const model = String(request.model || ai.model);
-      const nextWebMode = ["auto", "web", "off"].includes(String(request.webMode))
+      const nextWebMode = ["auto", "web", "off"].includes(
+        String(request.webMode),
+      )
         ? (request.webMode as WebMode)
         : webMode;
       const multiAgent = request.multiAgent === true && nextMode === "build";
@@ -618,7 +779,14 @@ export default function App() {
       setActive(selected.id);
       setMessages((items) => [
         ...items,
-        { role: "user", text: value, mode: nextMode, provider, model, multiAgent },
+        {
+          role: "user",
+          text: value,
+          mode: nextMode,
+          provider,
+          model,
+          multiAgent,
+        },
       ]);
       try {
         await api("chat", {
@@ -789,34 +957,33 @@ export default function App() {
   const multiAgentSupported =
     ai.provider === "codex" || ai.provider.startsWith("api:");
   return (
-    <div className="app">
-      <aside className="sidebar">
+    <div className={"app" + (sidebarOpen ? " sidebar-open" : "")}>
+      <aside
+        className="sidebar"
+        aria-label="Proyek"
+        hidden={!sidebarOpen}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            toggleSidebar(false);
+            document.getElementById("project-toggle")?.focus();
+          }
+        }}
+      >
         <div className="brand">
           <span className="brand-icon">
             <Flame size={23} />
           </span>
-          forge<span className="alpha">PERSONAL</span>
+          Forge
         </div>
-        <div className="workspace-switcher" aria-label="Ruang kerja Forge">
-          <button
-            className={workspaceView === "builder" ? "active" : ""}
-            onClick={() => {
-              setWorkspaceView("builder");
-              localStorage.setItem("forge-workspace-view", "builder");
-            }}
-          >
-            <Code2 size={14} /> Builder
-          </button>
-          <button
-            className={workspaceView === "chat" ? "active" : ""}
-            onClick={() => {
-              setWorkspaceView("chat");
-              localStorage.setItem("forge-workspace-view", "chat");
-            }}
-          >
-            <MessageSquare size={14} /> Dedicated Chat
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            toggleSidebar(false);
+            document.getElementById("project-toggle")?.focus();
+          }}
+        >
+          Tutup proyek
+        </button>
         <button
           className="new-project"
           disabled={!connected || busy}
@@ -831,19 +998,6 @@ export default function App() {
           WORKSPACE
           <span className="workspace-actions">
             <span>{projects.length.toString().padStart(2, "0")}</span>
-            <button
-              className="clear-workspace-button"
-              aria-label="Clear Workspace"
-              title="Kosongkan daftar proyek atau pindahkan semua folder ke Trash"
-              disabled={!projects.length || busy || !!active || deploying}
-              onClick={() => {
-                setError("");
-                setWorkspaceConfirmation("");
-                setClearingWorkspace({ deleteFiles: true });
-              }}
-            >
-              <Trash2 size={12} /> Clear Workspace
-            </button>
           </span>
         </div>
         <nav>
@@ -872,93 +1026,216 @@ export default function App() {
         >
           <FolderOpen size={15} /> Buka folder proyek
         </button>
-        <div className="sidebar-bottom">
-          <div className="local-note">
-            <ShieldCheck size={18} />
-            <div>
-              Ruang kerja pribadi
-              <small>File & checkpoint di komputer Anda</small>
-            </div>
-          </div>
-          <div className="profile">
-            <div className="avatar">A</div>
-            <div>
-              Personal workspace<small>Forge · v0.9.0</small>
-            </div>
-            <span className="dot" />
-          </div>
-        </div>
       </aside>
       <main className={workspaceView === "chat" ? "dedicated-mode" : ""}>
         <header className="topbar">
           <div className="breadcrumb">
             <Folder size={14} />
-            <span>Workspace</span>
-            <ChevronRight size={13} />
+            <button
+              id="project-toggle"
+              aria-expanded={sidebarOpen}
+              onClick={() => toggleSidebar(!sidebarOpen)}
+            >
+              Proyek
+            </button>
             <strong>{selected?.name || "Mulai proyek baru"}</strong>
           </div>
           <div className="top-actions">
             <button
-              className="sound-toggle"
-              aria-label={
-                notificationSound
-                  ? "Matikan suara persetujuan"
-                  : "Aktifkan suara persetujuan"
-              }
-              title={
-                notificationSound
-                  ? "Notifikasi izin bersuara"
-                  : "Notifikasi izin tanpa suara"
-              }
               onClick={() => {
-                void unlockNotificationAudio();
-                setNotificationSound((value) => !value);
+                setTab("preview");
+                setWorkspaceView("builder");
               }}
             >
-              {notificationSound ? <Bell size={14} /> : <BellOff size={14} />}
-              Izin
+              <Monitor size={14} /> Preview
             </button>
-            <button
-              className="theme-toggle"
-              aria-label={
-                theme === "dark" ? "Aktifkan light mode" : "Aktifkan dark mode"
-              }
-              title={theme === "dark" ? "Light mode" : "Dark mode"}
-              onClick={() =>
-                setTheme((current) => (current === "dark" ? "light" : "dark"))
-              }
-            >
-              {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
-              {theme === "dark" ? "Terang" : "Gelap"}
-            </button>
-            <span className="local-badge">
-              <span className="dot" /> LOCAL
-            </span>
-            <button
-              className="delete-project-button"
-              disabled={!selected || busy || !!active || deploying}
-              onClick={() => {
-                if (!selected) return;
-                setError("");
-                setDeleteConfirmation("");
-                setDeleting({ project: selected, deleteFiles: true });
-              }}
-            >
-              <Trash2 size={14} /> Hapus proyek
-            </button>
-            <button
-              disabled={!selected || busy || !!active || deploying}
-              onClick={() =>
-                void run(async () => {
-                  setHistory(
-                    await api("checkpoint", { projectId: selected!.id }),
-                  );
-                  setTab("history");
-                })
-              }
-            >
-              <GitBranch size={14} /> Checkpoint
-            </button>
+            <ContextPanel label="Tools">
+              {(close) => (
+                <>
+                  <div className="tool-routes">
+                    {[
+                      ["files", "Kode"],
+                      ["kanban", "Kanban"],
+                      ["deploy", "Deploy"],
+                      ["agent", "Agent"],
+                      ["history", "Checkpoint"],
+                      ["settings", "Pengaturan"],
+                      ["activity", "Aktivitas"],
+                    ].map(([id, label]) => (
+                      <button
+                        key={id}
+                        onClick={() => {
+                          close();
+                          openTool(id);
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => {
+                        close();
+                        openTool("preview");
+                        setVisualOpen(true);
+                      }}
+                    >
+                      Review visual
+                    </button>
+                    <button
+                      onClick={() => {
+                        close();
+                        setGuideOpen(true);
+                      }}
+                    >
+                      Forge Guide
+                    </button>
+                  </div>
+                  <details className="workflow-menu">
+                    <summary>Alur kerja</summary>{" "}
+                    <nav
+                      className="workflow-strip"
+                      aria-label="Brief Design Build Review"
+                    >
+                      <div className="workflow-steps">
+                        <button
+                          disabled={!selected}
+                          onClick={() => {
+                            setMode("plan");
+                            document.getElementById("forge-composer")?.focus();
+                          }}
+                        >
+                          <strong>1 · Brief</strong>
+                          <small>{flow.brief}</small>
+                        </button>
+                        <button
+                          disabled={!selected}
+                          onClick={() => openTool("agent")}
+                        >
+                          <strong>2 · Design</strong>
+                          <small>{flow.design}</small>
+                        </button>
+                        <button
+                          disabled={!selected || !!active}
+                          onClick={() => {
+                            setMode("build");
+                            document.getElementById("forge-composer")?.focus();
+                          }}
+                        >
+                          <strong>3 · Build</strong>
+                          <small>{flow.build}</small>
+                        </button>
+                        <button
+                          disabled={!selected}
+                          onClick={() => {
+                            openTool("preview");
+                            setVisualOpen(true);
+                          }}
+                        >
+                          <strong>
+                            4 · Review{flow.accepted ? " · Accepted" : ""}
+                          </strong>
+                          <small>{flow.review}</small>
+                        </button>
+                      </div>
+                      <p className="workflow-next">Berikutnya: {flow.next}</p>
+                    </nav>
+                  </details>
+                  <details>
+                    <summary>Preferensi & proyek</summary>{" "}
+                    <button
+                      className="sound-toggle"
+                      aria-label={
+                        notificationSound
+                          ? "Matikan suara persetujuan"
+                          : "Aktifkan suara persetujuan"
+                      }
+                      title={
+                        notificationSound
+                          ? "Notifikasi izin bersuara"
+                          : "Notifikasi izin tanpa suara"
+                      }
+                      onClick={() => {
+                        void unlockNotificationAudio();
+                        setNotificationSound((value) => !value);
+                      }}
+                    >
+                      {notificationSound ? (
+                        <Bell size={14} />
+                      ) : (
+                        <BellOff size={14} />
+                      )}
+                      Izin
+                    </button>
+                    <button
+                      className="theme-toggle"
+                      aria-label={
+                        theme === "dark"
+                          ? "Aktifkan light mode"
+                          : "Aktifkan dark mode"
+                      }
+                      title={theme === "dark" ? "Light mode" : "Dark mode"}
+                      onClick={() =>
+                        setTheme((current) =>
+                          current === "dark" ? "light" : "dark",
+                        )
+                      }
+                    >
+                      {theme === "dark" ? (
+                        <Sun size={14} />
+                      ) : (
+                        <Moon size={14} />
+                      )}
+                      {theme === "dark" ? "Terang" : "Gelap"}
+                    </button>
+                    <button
+                      className="delete-project-button"
+                      disabled={!selected || busy || !!active || deploying}
+                      onClick={() => {
+                        if (!selected) return;
+                        setError("");
+                        setDeleteConfirmation("");
+                        setDeleting({ project: selected, deleteFiles: true });
+                      }}
+                    >
+                      <Trash2 size={14} /> Hapus proyek
+                    </button>
+                    <button
+                      disabled={!selected || busy || !!active || deploying}
+                      onClick={() =>
+                        void run(async () => {
+                          setHistory(
+                            await api("checkpoint", {
+                              projectId: selected!.id,
+                            }),
+                          );
+                          openTool("history");
+                        })
+                      }
+                    >
+                      <GitBranch size={14} /> Buat checkpoint
+                    </button>
+                    <button
+                      className="clear-workspace-button"
+                      aria-label="Clear Workspace"
+                      title="Kosongkan daftar proyek atau pindahkan semua folder ke Trash"
+                      disabled={
+                        !projects.length || busy || !!active || deploying
+                      }
+                      onClick={() => {
+                        setError("");
+                        setWorkspaceConfirmation("");
+                        setClearingWorkspace({ deleteFiles: true });
+                      }}
+                    >
+                      <Trash2 size={12} /> Clear Workspace
+                    </button>
+                  </details>
+                  <p className="muted">
+                    {!stream ? "Menghubungkan ulang event stream…" : runtime}
+                  </p>
+                </>
+              )}
+            </ContextPanel>
           </div>
         </header>
         {error && (
@@ -979,11 +1256,7 @@ export default function App() {
                   ? "Cloudflare Preview siap:"
                   : "Deploy berhasil:"}
               </strong>
-              <a
-                href={deployResult.url}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href={deployResult.url} target="_blank" rel="noreferrer">
                 {deployResult.url}
               </a>
             </span>
@@ -1006,41 +1279,19 @@ export default function App() {
         )}
         <div
           className={
-            "workspace " + (workspaceView === "chat" ? "dedicated-chat" : "")
+            "workspace " +
+            (workspaceView === "chat" ? "dedicated-chat " : "") +
+            (active || approvals.some((a) => a.projectId === selected?.id)
+              ? "requires-attention"
+              : "")
           }
         >
           <section className="chat">
-            <div className="panel-heading">
-              <span>
-                {workspaceView === "chat" ? (
-                  <>
-                    <MessageSquare size={16} /> Dedicated Chat
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={16} /> Builder
-                  </>
-                )}
-              </span>
-              <span className="muted">IDEA → REALITY</span>
-            </div>
             <div className="conversation">
               {messages.length === 0 ? (
                 <div className="welcome">
-                  <span className="welcome-icon">
-                    <Flame size={29} />
-                  </span>
-                  <div className="eyebrow">YOUR NEXT IDEA STARTS HERE</div>
-                  <h1>
-                    Ide kecil.
-                    <br />
-                    Kemungkinan besar.
-                  </h1>
-                  <p>
-                    Ceritakan apa yang ingin Anda buat.
-                    <br />
-                    Forge membantu mewujudkannya, langkah demi langkah.
-                  </p>
+                  <h1>Apa yang ingin Anda kerjakan?</h1>
+                  <p>Tanya, rencanakan, atau bangun bersama Forge.</p>
                   <div className="suggestions">
                     {[
                       "Buat halaman landing yang modern",
@@ -1297,40 +1548,43 @@ export default function App() {
                       </button>
                     ))}
                   </div>
-                  <select
-                    className="agent-mode"
-                    aria-label="Mode agent"
-                    title="Multi-Agent memakai Lead, Explorer, Builder, dan Reviewer seperti workflow Codex. Hanya aktif pada Build."
-                    value={multiAgentSupported ? agentMode : "single"}
-                    disabled={
-                      mode !== "build" || !!active || !multiAgentSupported
-                    }
-                    onChange={(event) => {
-                      const next = event.target.value as AgentMode;
-                      setAgentMode(next);
-                      localStorage.setItem("forge-agent-mode", next);
-                    }}
-                  >
-                    <option value="single">Single Agent</option>
-                    <option value="multi">
-                      Multi-Agent · Codex/Vikey/OpenRouter
-                    </option>
-                  </select>
-                  <select
-                    className="web-mode"
-                    aria-label="Pencarian web"
-                    title="Otomatis mencari saat informasi terbaru diperlukan; Web selalu mencari; Offline tidak mengirim pertanyaan ke pencarian. Atur API key di Settings."
-                    value={webMode}
-                    onChange={(event) => {
-                      const next = event.target.value as WebMode;
-                      setWebMode(next);
-                      localStorage.setItem("forge-web-mode", next);
-                    }}
-                  >
-                    <option value="auto">Web · Otomatis</option>
-                    <option value="web">Web · Cari</option>
-                    <option value="off">Web · Offline</option>
-                  </select>
+                  <ContextPanel label="Opsi chat">
+                    {" "}
+                    <select
+                      className="agent-mode"
+                      aria-label="Mode agent"
+                      title="Multi-Agent memakai Lead, Explorer, Builder, dan Reviewer seperti workflow Codex. Hanya aktif pada Build."
+                      value={multiAgentSupported ? agentMode : "single"}
+                      disabled={
+                        mode !== "build" || !!active || !multiAgentSupported
+                      }
+                      onChange={(event) => {
+                        const next = event.target.value as AgentMode;
+                        setAgentMode(next);
+                        localStorage.setItem("forge-agent-mode", next);
+                      }}
+                    >
+                      <option value="single">Single Agent</option>
+                      <option value="multi">
+                        Multi-Agent · Codex/Vikey/OpenRouter
+                      </option>
+                    </select>
+                    <select
+                      className="web-mode"
+                      aria-label="Pencarian web"
+                      title="Otomatis mencari saat informasi terbaru diperlukan; Web selalu mencari; Offline tidak mengirim pertanyaan ke pencarian. Atur API key di Settings."
+                      value={webMode}
+                      onChange={(event) => {
+                        const next = event.target.value as WebMode;
+                        setWebMode(next);
+                        localStorage.setItem("forge-web-mode", next);
+                      }}
+                    >
+                      <option value="auto">Web · Otomatis</option>
+                      <option value="web">Web · Cari</option>
+                      <option value="off">Web · Offline</option>
+                    </select>
+                  </ContextPanel>
                   {active ? (
                     <button
                       aria-label="Hentikan agent"
@@ -1363,45 +1617,70 @@ export default function App() {
               </div>
               <div className="composer-caption">
                 {hints[mode]} · {draftStatus}
-                {draftLoadFailed && selected && <button onClick={() => void run(async () => { await select(selected); })}>Coba pulihkan draft lagi</button>}
+                {draftLoadFailed && selected && (
+                  <button
+                    onClick={() =>
+                      void run(async () => {
+                        await select(selected);
+                      })
+                    }
+                  >
+                    Coba pulihkan draft lagi
+                  </button>
+                )}
                 <span>↵ Kirim</span>
               </div>
             </div>
           </section>
-          <section className="right-pane">
-            <nav className="workflow-strip" aria-label="Brief Design Build Review">
-              <div className="workflow-steps">
-                <button disabled={!selected} onClick={() => { setMode("plan"); document.getElementById("forge-composer")?.focus(); }}><strong>1 · Brief</strong><small>{flow.brief}</small></button>
-                <button disabled={!selected} onClick={() => setTab("agent")}><strong>2 · Design</strong><small>{flow.design}</small></button>
-                <button disabled={!selected || !!active} onClick={() => { setMode("build"); document.getElementById("forge-composer")?.focus(); }}><strong>3 · Build</strong><small>{flow.build}</small></button>
-                <button disabled={!selected} onClick={() => { setTab("preview"); setVisualOpen(true); }}><strong>4 · Review{flow.accepted ? " · Accepted" : ""}</strong><small>{flow.review}</small></button>
-              </div><p className="workflow-next">Berikutnya: {flow.next}</p>
-            </nav>
-            <div className="tabs">
-              {[
-                { id: "preview", icon: Monitor, label: "Preview" },
-                { id: "files", icon: Code2, label: "Kode" },
-                { id: "kanban", icon: Columns3, label: "Kanban" },
-                { id: "deploy", icon: Rocket, label: "Deploy" },
-                { id: "agent", icon: Bot, label: "Agent" },
-                { id: "history", icon: History, label: "Checkpoint" },
-                { id: "settings", icon: Settings2, label: "Pengaturan" },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  className={tab === t.id ? "active-tab" : ""}
-                  onClick={() => setTab(t.id)}
-                >
-                  <t.icon size={15} />
-                  {t.label}
-                </button>
-              ))}
-              <span className="pane-spacer" />
-            </div>
-            <div className="workbench">
+          <section
+            className="right-pane"
+            hidden={workspaceView === "chat"}
+            aria-label="Panel proyek"
+          >
+            <button
+              onClick={() => {
+                setWorkspaceView("chat");
+              }}
+            >
+              Kembali ke chat
+            </button>
+            <div className="workbench" hidden={tab === "activity"}>
               {tab === "preview" ? (
                 <>
-                  {selected && visualState && <details className="visual-entry" open={visualOpen} onToggle={e => setVisualOpen(e.currentTarget.open)}><summary>Screenshot · before / after · click-to-edit</summary><VisualReview key={selected.id} project={selected} state={visualState} active={!!active} ai={ai} target={editTarget} onTarget={target => { if (current.current?.id === selected.id) setEditTarget(target); }} onCompose={value => { if (current.current?.id === selected.id) { setText(old => old.trim() ? `${old}\n\n${value}` : value); setMode("build"); document.getElementById("forge-composer")?.focus(); } }} onChanged={() => refreshVisual(selected)} onProjectChanged={() => refresh(selected)} /></details>}
+                  {selected && visualState && (
+                    <details
+                      className="visual-entry"
+                      open={visualOpen}
+                      onToggle={(e) => setVisualOpen(e.currentTarget.open)}
+                    >
+                      <summary>
+                        Screenshot · before / after · click-to-edit
+                      </summary>
+                      <VisualReview
+                        key={selected.id}
+                        project={selected}
+                        state={visualState}
+                        active={!!active}
+                        ai={ai}
+                        target={editTarget}
+                        onTarget={(target) => {
+                          if (current.current?.id === selected.id)
+                            setEditTarget(target);
+                        }}
+                        onCompose={(value) => {
+                          if (current.current?.id === selected.id) {
+                            setText((old) =>
+                              old.trim() ? `${old}\n\n${value}` : value,
+                            );
+                            setMode("build");
+                            document.getElementById("forge-composer")?.focus();
+                          }
+                        }}
+                        onChanged={() => refreshVisual(selected)}
+                        onProjectChanged={() => refresh(selected)}
+                      />
+                    </details>
+                  )}
                   <div className="preview-toolbar">
                     <div className="address">
                       <span className="dot" />
@@ -1487,15 +1766,11 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="preview-empty">
-                      <div className="preview-orbit">
-                        <Monitor size={29} />
-                        <span className="orbit-dot" />
-                      </div>
-                      <h2>Ide Anda, terlihat nyata.</h2>
+                      <Monitor size={24} />
+                      <h2>Preview belum berjalan</h2>
                       <p>
-                        Jalankan proyek untuk melihat hasilnya di sini.
-                        <br />
-                        Demo pertama sudah siap, tanpa install tambahan.
+                        Jalankan proyek saat Anda siap. Perintah akan
+                        dikonfirmasi terlebih dahulu.
                       </p>
                       <button
                         className="primary"
@@ -1504,7 +1779,6 @@ export default function App() {
                       >
                         <Play size={13} /> Jalankan preview
                       </button>
-                      <small>LOCAL PREVIEW · HANYA DI KOMPUTER ANDA</small>
                     </div>
                   )}
                   {!!annotations.length && (
@@ -1605,7 +1879,8 @@ export default function App() {
                           <Suspense
                             fallback={
                               <div className="code-empty">
-                                <Loader2 size={22} className="spin" /> Memuat editor…
+                                <Loader2 size={22} className="spin" /> Memuat
+                                editor…
                               </div>
                             }
                           >
@@ -1781,17 +2056,18 @@ export default function App() {
                 </div>
               )}
               {selected && (
-                <div style={{ display: tab === "preview" ? "block" : "none" }}>
+                <details className="preview-tests" hidden={tab !== "preview"}>
+                  <summary>Uji browser</summary>
                   <BrowserTests
                     key={selected.id}
                     project={selected}
                     preview={preview}
                     events={events}
                   />
-                </div>
+                </details>
               )}
             </div>
-            <div className="activity">
+            <div className="activity" hidden={tab !== "activity"}>
               <div className="activity-header">
                 <span>
                   <Terminal size={14} /> Aktivitas{" "}
@@ -1864,34 +2140,15 @@ export default function App() {
             </div>
           </section>
         </div>
-        <footer className="statusbar">
-          <span>
-            <span className={"dot " + (!stream ? "red" : "")} />
-            {!stream ? "Menghubungkan ulang event stream…" : runtime}
-          </span>
-          <span>
-            <ShieldCheck size={12} />{" "}
-            {ai.provider.startsWith("api:")
-              ? mode === "build"
-                ? "OpenRouter · izin tiap perubahan"
-                : "API Provider · read-only"
-              : ai.provider === "gemini"
-                ? mode === "build"
-                  ? "Gemini · approval default"
-                  : "Gemini · Plan read-only"
-                : ["ollama", "bonsai"].includes(ai.provider)
-                  ? mode === "build"
-                    ? "Local AI · izin tiap perubahan"
-                    : "Local AI · read-only"
-                  : mode === "build"
-                    ? "Workspace sandbox"
-                    : "Read-only sandbox"}
-            <span className="divider">|</span>
-            <GitBranch size={12} /> Local checkpoints
-          </span>
-        </footer>
+        {!stream && (
+          <div className="error" role="status">
+            Menghubungkan ulang event stream…
+          </div>
+        )}
       </main>
       <GuideChat
+        open={guideOpen}
+        onOpenChange={setGuideOpen}
         project={selected}
         ai={ai}
         mode={mode}

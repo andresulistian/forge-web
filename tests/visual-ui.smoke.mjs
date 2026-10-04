@@ -20,6 +20,8 @@ test(
         `document.querySelector('#forge-composer') && document.body.innerText.includes('Draft tersimpan')`,
       ),
     );
+    await b.click("Tools");
+    await b.click("Alur kerja");
     assert.equal(
       await b.evaluate(
         `document.querySelectorAll('.workflow-steps button')[1].textContent.includes('Identitas tersimpan')`,
@@ -33,7 +35,7 @@ test(
       ),
       true,
     );
-    await b.click("4 · ReviewBelum diperiksa visual");
+    await b.click("Review visual");
     await b.click("Ambil screenshot");
     await until(
       () =>
@@ -110,7 +112,8 @@ test(
         `document.querySelector('#forge-composer')?.value.includes('Make selected button blue')`,
       ),
     );
-    await b.click("4 · ReviewBelum diperiksa visual");
+    await b.click("Tools");
+    await b.click("Review visual");
     await until(() =>
       b.evaluate(
         `!!document.querySelector('[aria-label="Instruksi perubahan elemen"]')`,
@@ -157,11 +160,14 @@ test(
         visual.captures.some((c) => c.kind === "after")
       );
     }, 30000);
+    await b.click("Tools");
+    await b.click("Alur kerja");
     await until(() =>
       b.evaluate(
         `document.body.innerText.includes('Kode selesai · build belum diuji')`,
       ),
     );
+    await b.click("Tools");
     await b.evaluate(
       `document.querySelector('.visual-comparison').open=true;document.querySelector('.visual-comparison').scrollIntoView({block:'start'})`,
     );
@@ -180,6 +186,7 @@ test(
     );
     // Selected tab and unsent text survive a server restart on a new port.
     await b.fill("#forge-composer", "Unsent after review");
+    await b.click("Tools");
     await b.click("Agent");
     await until(async () => {
       const s = await forge.json(`session?projectId=${project.id}`);
@@ -193,17 +200,16 @@ test(
     });
     await until(() =>
       b.evaluate(
-        `document.querySelector('#forge-composer')?.value==='Unsent after review' && document.querySelector('.active-tab')?.textContent==='Agent'`,
+        `document.querySelector('#forge-composer')?.value==='Unsent after review' && !!document.querySelector('.workspace.dedicated-chat') && !!document.querySelector('.agent-center')`,
       ),
     );
     assert.equal((await forge.json("state")).active, null);
-    await b
-      .click("4 · ReviewVisual ditinjau · bukan jaminan kualitas")
-      .catch(async () => {
-        await b.evaluate(
-          `document.querySelectorAll('.workflow-steps button')[3].click()`,
-        );
-      });
+    assert.equal(
+      (await forge.json(`session?projectId=${project.id}`)).draft.tab,
+      "agent",
+    );
+    await b.click("Tools");
+    await b.click("Review visual");
     await b.client.send("Emulation.setDeviceMetricsOverride", {
       width: 850,
       height: 1000,

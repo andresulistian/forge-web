@@ -26,7 +26,9 @@ async function fixture(t) {
 test("Universal Agent Core routes every provider through one request contract", async () => {
   const events = [];
   const requests = [];
-  const core = new UniversalAgentCore((type, payload) => events.push({ type, payload }));
+  const core = new UniversalAgentCore((type, payload) =>
+    events.push({ type, payload }),
+  );
   for (const id of ["codex", "openrouter", "vikey", "local"])
     core.register(
       agentAdapter({
@@ -49,7 +51,10 @@ test("Universal Agent Core routes every provider through one request contract", 
   assert.equal(requests[0], request);
   assert.equal(events[0].type, "agent-activity");
   assert.equal(events[0].payload.phase, "routing");
-  await assert.rejects(() => core.execute({ ...request, provider: "unknown" }), /Provider/);
+  await assert.rejects(
+    () => core.execute({ ...request, provider: "unknown" }),
+    /Provider/,
+  );
 });
 
 test("Hermes-style skills are reusable, project-scoped, and injectable", async (t) => {
@@ -65,7 +70,10 @@ test("Hermes-style skills are reusable, project-scoped, and injectable", async (
   const resolved = skills.resolve(project.id, "/a11y periksa halaman checkout");
   assert.equal(resolved.text, "periksa halaman checkout");
   assert.match(resolved.instructions, /keyboard, focus/);
-  assert.equal(skills.list("project-lain").some((item) => item.id === custom.id), false);
+  assert.equal(
+    skills.list("project-lain").some((item) => item.id === custom.id),
+    false,
+  );
 });
 
 test("Project Memory scans structure and commands while preserving decisions", async (t) => {
@@ -79,7 +87,9 @@ test("Project Memory scans structure and commands while preserving decisions", a
     decisions: ["Gunakan API yang sama untuk semua provider."],
   });
   const refreshed = await memory.refresh(project);
-  assert.ok(refreshed.decisions.some((item) => item.includes("semua provider")));
+  assert.ok(
+    refreshed.decisions.some((item) => item.includes("semua provider")),
+  );
   assert.match(memory.prompt(refreshed), /Project Memory/);
   assert.match(memory.prompt(refreshed), /Important commands/);
 });
@@ -93,7 +103,10 @@ test("Agent run captures elapsed status and a reviewable diff that can be restor
     { text: "ubah aplikasi", mode: "build", provider: "codex", model: "sol" },
     before,
   );
-  await fs.writeFile(path.join(project.path, "new-agent-file.txt"), "hasil agent\n");
+  await fs.writeFile(
+    path.join(project.path, "new-agent-file.txt"),
+    "hasil agent\n",
+  );
   center.update(project.id, { testStatus: "passed", buildStatus: "passed" });
   const run = await center.finish(project);
   assert.equal(run.status, "completed");
@@ -102,7 +115,9 @@ test("Agent run captures elapsed status and a reviewable diff that can be restor
   assert.ok(run.diff.files.some((item) => item.file === "new-agent-file.txt"));
   assert.match(run.diff.patch, /hasil agent/);
   await workspace.restore(project, before);
-  await assert.rejects(() => fs.access(path.join(project.path, "new-agent-file.txt")));
+  await assert.rejects(() =>
+    fs.access(path.join(project.path, "new-agent-file.txt")),
+  );
 });
 
 test("Phase 1 UI keeps Agent Center, safe review, memory, and responsive layout", async () => {
@@ -112,7 +127,7 @@ test("Phase 1 UI keeps Agent Center, safe review, memory, and responsive layout"
     fs.readFile(new URL("../src/styles.css", import.meta.url), "utf8"),
     fs.readFile(new URL("../server/index.mjs", import.meta.url), "utf8"),
   ]);
-  assert.match(app, /label: "Agent"/);
+  assert.match(app, /\["agent", "Agent"\]/);
   assert.match(app, /<AgentCenter/);
   assert.match(center, /Review perubahan/);
   assert.match(center, /Project Memory/);

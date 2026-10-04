@@ -1,9 +1,9 @@
 .workflow-strip,
 .visual-review {
-  --visual-border: #343735;
-  --visual-muted: #a5afa4;
-  --visual-bg: #151716;
-  --visual-accent: #d2e8b5;
+  --visual-border: var(--border);
+  --visual-muted: var(--muted);
+  --visual-bg: var(--surface);
+  --visual-accent: var(--accent);
 }
 .right-pane {
   container-type: inline-size;
@@ -36,7 +36,7 @@
   font-size: 12px;
 }
 .workflow-steps small {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--visual-muted);
   overflow-wrap: anywhere;
@@ -44,12 +44,12 @@
 .workflow-next {
   margin: 7px 0 0;
   color: var(--visual-muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .visual-entry {
   border: 0;
-  border-bottom: 1px solid #343735;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   max-height: 70%;
   overflow: auto;
@@ -126,7 +126,7 @@
   height: 16px;
 }
 .visual-error {
-  color: #ffb8ae;
+  color: var(--danger);
 }
 .visual-comparison,
 .snapshot-inspector {
@@ -156,7 +156,7 @@
 .capture-figure small {
   display: block;
   color: var(--visual-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .capture-figure img {
   width: 100%;
@@ -188,17 +188,6 @@
 .visual-entry > summary:focus-visible {
   outline: 2px solid var(--visual-accent);
   outline-offset: 3px;
-}
-:root[data-theme="light"] .workflow-strip,
-:root[data-theme="light"] .visual-review {
-  --visual-border: #cbd3c5;
-  --visual-muted: #53614d;
-  --visual-bg: #fff;
-  --visual-accent: #37532b;
-  color: #28322a;
-}
-:root[data-theme="light"] .visual-error {
-  color: #9c3023;
 }
 @container (max-width:560px) {
   .workflow-steps {

@@ -29,7 +29,8 @@ test(
         `document.querySelector('#forge-composer') && !document.querySelector('#forge-composer').disabled`,
       ),
     );
-    await b.click("4 · ReviewBelum diperiksa visual");
+    await b.click("Tools");
+    await b.click("Review visual");
     await b.fill('[aria-label="Target DOM snapshot"]', "0");
     await until(() => b.evaluate("window.targetWaiting"));
     await b.fill('[aria-label="Capture tersimpan"]', captures[1].id);

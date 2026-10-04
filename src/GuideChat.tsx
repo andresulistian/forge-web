@@ -30,6 +30,8 @@ type GuideProvider = {
 };
 
 export default function GuideChat({
+  open,
+  onOpenChange,
   project,
   ai,
   mode,
@@ -37,6 +39,8 @@ export default function GuideChat({
   ready,
   integrationRevision = 0,
 }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   project: Project | null;
   ai: AiSelection;
   mode: string;
@@ -44,7 +48,6 @@ export default function GuideChat({
   ready: boolean;
   integrationRevision?: number;
 }) {
-  const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<GuideMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [live, setLive] = useState("");
@@ -63,13 +66,14 @@ export default function GuideChat({
   const selectedProvider = providers.find(
     (item) => `api:${item.id}` === guideProvider,
   );
-  const selectedModels = guideProvider === "ollama"
-    ? ["", "llama3.1", "llama3.2", "gemma2", "mistral", "qwen2.5"]
-    : selectedProvider?.models?.length
-      ? selectedProvider.models
-      : selectedProvider
-        ? [selectedProvider.defaultModel]
-        : [];
+  const selectedModels =
+    guideProvider === "ollama"
+      ? ["", "llama3.1", "llama3.2", "gemma2", "mistral", "qwen2.5"]
+      : selectedProvider?.models?.length
+        ? selectedProvider.models
+        : selectedProvider
+          ? [selectedProvider.defaultModel]
+          : [];
 
   useEffect(() => {
     if (!open || !ready) return;
@@ -180,8 +184,16 @@ export default function GuideChat({
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, live, open]);
 
+  useEffect(() => {
+    if (open)
+      document
+        .querySelector<HTMLButtonElement>('[aria-label="Tutup Guide"]')
+        ?.focus();
+  }, [open]);
+
   const close = () => {
-    setOpen(false);
+    onOpenChange(false);
+    document.querySelector<HTMLButtonElement>('[aria-label="Tools"]')?.focus();
     setActive(false);
     setLive("");
     void api("guide/close", {}).catch(() => {});
@@ -228,9 +240,10 @@ export default function GuideChat({
         mode,
         webMode,
         guideProvider,
-        guideModel: guideProvider === "ollama"
-          ? ""
-          : guideModel || selectedProvider?.defaultModel,
+        guideModel:
+          guideProvider === "ollama"
+            ? ""
+            : guideModel || selectedProvider?.defaultModel,
       });
     } catch (cause) {
       setError((cause as Error).message);
@@ -270,7 +283,16 @@ export default function GuideChat({
   return (
     <div className="guide-shell">
       {open && (
-        <section className="guide-panel" aria-label="Forge Guide">
+        <section
+          className="guide-panel"
+          aria-label="Forge Guide"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              close();
+            }
+          }}
+        >
           <header className="guide-header">
             <span className="guide-mark">
               <MessageCircleQuestion size={18} />
@@ -315,12 +337,11 @@ export default function GuideChat({
                     OpenRouter · {item.label}
                   </option>
                 ))}
-                {!["ollama"].includes(guideProvider) &&
-                  !selectedProvider && (
-                    <option value={guideProvider} disabled>
-                      OpenRouter connection unavailable
-                    </option>
-                  )}
+                {!["ollama"].includes(guideProvider) && !selectedProvider && (
+                  <option value={guideProvider} disabled>
+                    OpenRouter connection unavailable
+                  </option>
+                )}
               </select>
             </label>
             {selectedProvider && (
@@ -481,19 +502,6 @@ export default function GuideChat({
             Enter kirim · Shift+Enter baris baru · tidak dapat mengubah file
           </footer>
         </section>
-      )}
-      {!open && (
-        <button
-          className="guide-launcher"
-          disabled={!ready}
-          onClick={() => setOpen(true)}
-        >
-          <MessageCircleQuestion size={19} />
-          <span>
-            <strong>Forge Guide</strong>
-            <small>Diskusi prompt & bantuan</small>
-          </span>
-        </button>
       )}
     </div>
   );

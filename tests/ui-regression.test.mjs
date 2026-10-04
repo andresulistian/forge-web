@@ -53,7 +53,11 @@ test("dark and light themes persist and also update Monaco", async () => {
   assert.match(app, /document\.documentElement\.dataset\.theme = theme/);
   assert.match(app, /className="theme-toggle"/);
   assert.match(editor, /theme === "light" \? "light" : "vs-dark"/);
-  assert.match(styles, /:root\[data-theme="light"\]/);
+  assert.match(styles, /@import "\.\/theme.css"/);
+  assert.match(
+    await read("src/theme.css"),
+    /:root\[data-theme=['"]light['"]\]/,
+  );
 });
 
 test("Dedicated Chat and Codex-style multi-agent controls cannot disappear", async () => {
@@ -65,7 +69,8 @@ test("Dedicated Chat and Codex-style multi-agent controls cannot disappear", asy
     read("server/codex.mjs"),
     read("server/api-providers.mjs"),
   ]);
-  assert.match(app, /Dedicated Chat/);
+  assert.match(app, /useState<WorkspaceView>\("chat"\)/);
+  assert.match(app, /label="Opsi chat"/);
   assert.match(app, /Multi-Agent · Codex\/Vikey\/OpenRouter/);
   assert.match(app, /aria-label="Status multi-agent"/);
   assert.match(app, /multiAgentSupported/);
@@ -83,10 +88,7 @@ test("Dedicated Chat and Codex-style multi-agent controls cannot disappear", asy
 test("OpenRouter tool runs allow up to 120 steps", async () => {
   const providers = await read("server/api-providers.mjs");
   assert.match(providers, /const OPENROUTER_MAX_TOOL_STEPS = 120/);
-  assert.match(
-    providers,
-    /maxSteps = OPENROUTER_MAX_TOOL_STEPS/,
-  );
+  assert.match(providers, /maxSteps = OPENROUTER_MAX_TOOL_STEPS/);
   assert.match(
     providers,
     /finalize: false, maxSteps: OPENROUTER_MAX_TOOL_STEPS/,
@@ -131,7 +133,7 @@ test("cumulative Mac features cannot silently disappear from a release", async (
   assert.match(attachments, /inspectZip/);
   // v0.9.0 Kanban board and its server wiring.
   assert.match(app, /<KanbanPanel/);
-  assert.match(app, /icon: Columns3, label: "Kanban"/);
+  assert.match(app, /\["kanban", "Kanban"\]/);
   assert.match(app, /kanban-updated/);
   assert.match(app, /kanbanTaskId/);
   assert.match(server, /url\.pathname === "\/api\/kanban"/);
@@ -161,12 +163,11 @@ test("approval sound, new-tab preview, and editable annotations stay available",
 
 test("workspace adapts to narrow and short browser viewports", async () => {
   const styles = await read("src/styles.css");
-  assert.match(styles, /@media \(max-height: 950px\)/);
-  assert.match(styles, /@media \(max-height: 720px\)/);
-  assert.match(
-    styles,
-    /@media \(min-width: 1500px\) and \(min-height: 1000px\)/,
-  );
+  assert.match(styles, /@media \(max-width: 760px\)/);
+  assert.match(styles, /height: 100dvh/);
+  assert.match(styles, /\.conversation \{[\s\S]*?overflow: auto/);
+  // Actual 390/1024/1440 widths, both themes and screenshots: simple-ui.smoke.mjs.
+  assert.match(styles, /width: min\(840px, 100%\)/);
   assert.match(styles, /\.composer-tools \{[\s\S]*?flex-wrap: wrap/);
   assert.match(styles, /\.tabs \{[\s\S]*?overflow-x: auto/);
   assert.match(styles, /\.workspace \{[\s\S]*?min-width: 0/);

@@ -1,16 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 export async function isolatedForge(t) {
-  const root = await fs.mkdtemp(
-    path.join(
-      fileURLToPath(new URL("../../", import.meta.url)),
-      "forge-visual-api-",
-    ),
-  );
+  const scratch =
+    process.env.FORGE_TEST_ROOT ||
+    path.join(os.homedir(), ".hermes", "cache", "scratch");
+  await fs.mkdir(scratch, { recursive: true });
+  const root = await fs.mkdtemp(path.join(scratch, "forge-visual-api-"));
   let child,
     connection,
     stderr = "";

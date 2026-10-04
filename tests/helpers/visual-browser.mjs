@@ -93,14 +93,28 @@ export async function browser(t, root, origins) {
     return r.result.value;
   };
   const click = async (label) => {
-    await until(() =>
-      evaluate(
-        `!![...document.querySelectorAll('button,summary')].find(e=>e.textContent.trim()===${JSON.stringify(label)})`,
-      ),
-    );
-    await evaluate(
-      `[...document.querySelectorAll('button,summary')].find(e=>e.textContent.trim()===${JSON.stringify(label)}).click()`,
-    );
+    let point;
+    await until(async () => {
+      point = await evaluate(`(() => {
+        const el=[...document.querySelectorAll('button,summary')].find(e=>e.textContent.trim()===${JSON.stringify(label)} && e.checkVisibility() && !e.disabled);
+        if(!el) return null;
+        el.scrollIntoView({block:'nearest'});const r=el.getBoundingClientRect();
+        return {x:r.x+r.width/2,y:r.y+r.height/2};
+      })()`);
+      return !!point;
+    });
+    await client.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      ...point,
+      button: "left",
+      clickCount: 1,
+    });
+    await client.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      ...point,
+      button: "left",
+      clickCount: 1,
+    });
   };
   const fill = async (selector, value) =>
     evaluate(
