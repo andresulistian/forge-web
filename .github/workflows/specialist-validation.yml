@@ -1,0 +1,34 @@
+name: Specialist workflow validation
+on:
+  pull_request:
+  push:
+    branches: ["feature/specialist-coordinator-20261015"]
+permissions:
+  contents: read
+jobs:
+  validate:
+    name: Validate ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [feature, baseline]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.version == 'baseline' && '81c9871e582593d1290424928392085b18066a37' || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Lint
+        run: npm run lint
+      - name: All tests (no skips)
+        if: ${{ !cancelled() }}
+        run: npm test
+      - name: Production build (independent of test outcome)
+        if: ${{ !cancelled() }}
+        run: npm run build
