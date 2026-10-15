@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { KanbanManager, decompose, routeAgents } from "../server/kanban.mjs";
+import { activeWorkflow } from "../server/workflow-bindings.mjs";
 
 const setup = async (t, scripts) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "forge-kanban-"));
@@ -22,12 +23,12 @@ test("routing keeps small work on one agent and scales complex work by mode", ()
   assert.equal(routeAgents("1. Refactor auth\n2. Migrate database\n3. Add regression tests", "economy").workers, 1);
   assert.deepEqual(
     routeAgents("1. Refactor auth\n2. Migrate database\n3. Add regression tests", "maximum").specialists,
-    ["architecture", "risks"],
+    ["explorer", "reviewer"],
   );
   assert.deepEqual(decompose("1. Update schema\n2. Add tests"), ["Update schema", "Add tests"]);
 });
 
-test("board persists, carries bounded context, and gates Done on Accept plus regression checks", async (t) => {
+test("single-agent board persists, carries bounded context, and gates Done on Accept plus checks", async (t) => {
   const { root, project } = await setup(t, { test: "node -e \"process.exit(1)\"" });
   const events = [];
   const board = new KanbanManager(root, (type, payload) => events.push({ type, payload }));
@@ -37,7 +38,7 @@ test("board persists, carries bounded context, and gates Done on Accept plus reg
   assert.equal(events.at(-1).type, "kanban-updated");
   await board.move(project, created.id, "todo");
   await assert.rejects(board.move(project, created.id, "in_progress"), /otomatis/);
-  const started = await board.start(project, created.id, "run-1", { provider: "codex", enabled: true });
+  const started = await board.start(project, created.id, "run-1", { provider: "codex", enabled: false });
   assert.equal(started.task.column, "in_progress");
   assert.match(started.context, /README.md/);
   assert.doesNotMatch(started.context, /do-not-leak/);
@@ -79,7 +80,7 @@ test("Undo and empty failed builds return the task to To Do; reported cost is su
   const { root, project } = await setup(t, {});
   const board = new KanbanManager(root);
   const task = await board.create(project, "Add dark mode", "economy");
-  await board.start(project, task.id, "run-a");
+  await board.start(project, task.id, "run-a", { enabled: false });
   await board.recordUsage(project, task.id, { input_tokens: 10, output_tokens: 5, cost: 0.01 });
   await board.recordUsage(project, task.id, { input_tokens: 4, output_tokens: 1, cost: 0.02 });
   await board.finish(project, "run-a", { files: [{ file: "src/App.tsx" }] });
@@ -89,11 +90,11 @@ test("Undo and empty failed builds return the task to To Do; reported cost is su
   assert.equal(undone.usage.inputTokens, 14);
   assert.equal(undone.usage.outputTokens, 6);
   assert.ok(Math.abs(undone.usage.costUsd - 0.03) < 1e-9);
-  await board.start(project, task.id, "run-b");
+  await board.start(project, task.id, "run-b", { enabled: false });
   const failed = await board.finish(project, "run-b", { error: "provider offline" });
   assert.equal(failed.column, "todo");
   assert.match(failed.summary, /provider offline/);
-  await board.start(project, task.id, "run-c");
+  await board.start(project, task.id, "run-c", { enabled: false });
   const empty = await board.finish(project, "run-c", { result: "Nothing needed." });
   assert.equal(empty.review, "no-changes");
   const noScripts = await board.verify(project, task.id);
@@ -105,7 +106,7 @@ test("regression checks are bounded by a timeout", async (t) => {
   const { root, project } = await setup(t, { test: "node -e \"setTimeout(() => {}, 60000)\"" });
   const board = new KanbanManager(root, () => {}, { checkTimeoutMs: 1500 });
   const task = await board.create(project, "Slow task");
-  await board.start(project, task.id, "run-slow");
+  await board.start(project, task.id, "run-slow", { enabled: false });
   await board.finish(project, "run-slow", { result: "done" });
   const started = Date.now();
   const result = await board.verify(project, task.id);
@@ -128,4 +129,39 @@ test("project IDs, modes, sizes and task limits are validated", async (t) => {
   assert.equal((await board.list(project)).tasks.length, 0);
   await board.forget(project);
   await assert.rejects(fs.stat(path.join(root, "kanban", "test-project.json")), /ENOENT/);
+});
+
+test("specialist routing is bound exactly and failed QA cannot be accepted into Done", async (t) => {
+  const { root, project } = await setup(t, { test: 'node -e "process.exit(0)"' });
+  const board = new KanbanManager(root);
+  const task = await board.create(project, "Upload logo to preview");
+  const started = await board.start(project, task.id, "managed-1", { enabled: true });
+  const binding = activeWorkflow(root, project.id);
+  assert.equal(binding.plan, started.task.routing);
+  assert.deepEqual(binding.plan.roles, ["explorer", "backend", "frontend", "reviewer"]);
+  await binding.record({ ok: false, reason: "QA failed" });
+  await board.finish(project, "managed-1", { files: [{file:"src/App.tsx"}] });
+  await board.review(project, "managed-1", "accepted");
+  assert.equal(activeWorkflow(root, project.id), null);
+  await assert.rejects(board.verify(project, task.id), /belum lolos/);
+  await assert.rejects(binding.record({ok:true}), /tidak aktif/);
+});
+
+test("successful managed QA and review persist, but a subsequently removed test blocks Done", async (t) => {
+  const { root, project } = await setup(t, { test: 'node -e "process.exit(0)"' });
+  const board = new KanbanManager(root);
+  const task = await board.create(project, "Fix auth API");
+  await board.start(project, task.id, "managed-2", { enabled: true });
+  const binding = activeWorkflow(root, project.id);
+  await binding.record({ ok: true, calls: 3, attempts: 1,
+    checks: {ok:true,results:[{name:"test",ok:true,exitCode:0}]},
+    review: {verdict:"PASS",criteria:[{id:"C1",status:"pass",evidence:"fixture assertions"}]} });
+  await board.finish(project, "managed-2", { files: [{file:"server/api.mjs"}] });
+  await board.review(project, "managed-2", "accepted");
+  assert.equal((await new KanbanManager(root).get(project, task.id)).task.workflow.ok, true);
+  await fs.writeFile(path.join(project.path,"package.json"),JSON.stringify({scripts:{lint:'node -e "process.exit(0)"'}}));
+  await assert.rejects(board.verify(project,task.id),/test wajib/);
+  assert.equal((await board.get(project,task.id)).task.column,"review_test");
+  await fs.writeFile(path.join(project.path,"package.json"),JSON.stringify({scripts:{test:'node -e "process.exit(0)"'}}));
+  assert.equal((await board.verify(project,task.id)).column,"done");
 });
