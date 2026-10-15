@@ -96,7 +96,14 @@ test("research context reaches each selected agent and API provider without chan
   const agents = new Agents(() => {}, "/tmp/forge-test-runtime");
   const seen = [];
   agents.codex.models = async () => [{ model: "model" }];
-  agents.apiProviders.store = { messages: () => [] };
+  // Provider policy now validates the stored type even for Ask. Supply the real
+  // settings contract in this mock; do not bypass the removed-provider guard.
+  agents.apiProviders.store = {
+    messages: () => [],
+    setting: (scope, key) => scope === "global" && key === "api-providers"
+      ? [{ id: "one", type: "openrouter", enabled: true }]
+      : null,
+  };
   for (const name of ["codex", "gemini", "ollama"]) {
     agents[name].turn = async (...args) => seen.push({ name, args });
     agents[name].active = null;
